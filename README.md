@@ -5,12 +5,12 @@ A nonlinear numerical model for simulating the propagation of Acoustic-Gravity W
 This codebase is heavily inspired by and validated against the numerical approaches detailed in:
 > **Srivastava et al. 2022**: *"A nonlinear numerical model for comparative study of acoustic-gravity wave propagation in planetary atmospheres - Application to Earth and Mars"* (JGR Planets).
 
-## 📌 Repository Scope
+## Repository Scope
 This repository is configured strictly for core solver development and collaboration. **It tracks only the Julia source code (`src/`) and environment configuration files.** 
 
 Documentation, validation reports, output data, and plotting scripts are maintained separately to keep the primary codebase clean and lightweight.
 
-## 🚀 Getting Started
+## Getting Started
 
 This project is written in [Julia](https://julialang.org/). The dependencies and exact package versions are tracked via `Project.toml` and `Manifest.toml` to ensure complete reproducibility.
 
@@ -91,7 +91,7 @@ state = run_simulation(config;
 )
 ```
 
-## 📂 Codebase Structure
+## Codebase Structure
 * `src/`: Core Julia implementation.
   * `MAGNUSP.jl`: Main module definition.
   * `euler.jl` / `diffusion.jl` / `forcing.jl`: Core physics and fluid dynamics equations.
@@ -99,5 +99,5 @@ state = run_simulation(config;
   * `grid.jl` / `atmosphere.jl`: Spatial discretization and background atmospheric states.
 * `Project.toml` & `Manifest.toml`: Julia package environment configuration.
 
-## 📄 License
+## License
 This project is licensed under the [MIT License](LICENSE).
