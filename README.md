@@ -1,4 +1,4 @@
-# Acoustic-Gravity Wave Solver (MAGNUSP)
+# Model for Acoustic Gravity wave Numerical Simulation in Planetary atmospheres (MAGNUS-P)
 
 A nonlinear numerical model for simulating the propagation of Acoustic-Gravity Waves (AGWs) in planetary atmospheres (e.g., Earth and Mars). 
 
