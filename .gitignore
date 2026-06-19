@@ -1,0 +1,23 @@
+# Editor and tool directories
+.claude/
+.junie/
+.github/
+
+# Log files
+*.log
+
+# Documentation, guidelines, and project notes
+docs/
+conductor/
+GEMINI.md
+
+# External data, test scripts, and output results
+external/
+output/
+test/
+scripts/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
