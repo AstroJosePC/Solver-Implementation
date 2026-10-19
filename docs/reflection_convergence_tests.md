@@ -4805,3 +4805,20 @@ snapshot: 0.1 h of S04 (6 snapshots), C2R (5), S14G1 (5), C2R with `probe=5` (5)
 and the Queney driver on its default path against its pre-addendum-3 copy (2), 29 snapshots
 in all. The Queney face path completed, and so did the Queney face path with `pbar=1`, on
 `:pressure` (`output/analysis/s15/S15.check.log`).
+
+### Launch record
+
+The pre-registration above was committed on its own on branch `dev/s15-face-production`
+(`0b68341`) and tagged `prereg/s15-face-h1` before launch. The tracked state the runs read
+(`src/`, the drivers, the launcher and the MCD column) was committed first, and the launch
+commit `671bf32` is tagged `run/s15-20261019`. The tree was clean at launch.
+
+`launch s15` at 2026-10-19 02:11:48 from the copy `~/MAGNUSP_runs/logs/S15.launcher.sh`
+(launcher hash `4781b8b1d80e581d`, driver and `src/` hash `c503a6c106887e07`), all twelve
+cases, concurrency 12, with `S14_REPO` set to the repository. `monitor s15` was started from
+the same copy at 02:12 and holds `caffeinate -s -i`. It writes the per-step cost and CPU
+power every 60 s to `~/MAGNUSP_runs/logs/S15.cost.tsv`. Logs are
+`~/MAGNUSP_runs/logs/<run ID>.log`, each with a provenance header, and stamps are in
+`S15.start`. Each case appends its row to `docs/run_matrix.csv` when it ends. All twelve
+logged their first diagnostic line within 2 min. The launcher in `scripts/` is not edited
+while the batch runs.
