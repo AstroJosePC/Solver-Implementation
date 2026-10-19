@@ -6,16 +6,31 @@
 # Log files
 *.log
 
-# Documentation, guidelines, and project notes
-docs/
+# Documentation: only the campaign docs, the TODO tracker and the run matrix are tracked;
+# converted papers and image folders stay local (literature is not committed)
+docs/*
+!docs/reflection_convergence_tests.md
+!docs/linear_flux_constancy.md
+!docs/ext6h_instability_mechanism.md
+!docs/arsia_stage1_U57_h3_deep_dive.md
+!docs/TODO_tracker.md
+!docs/run_matrix.csv
 conductor/
 GEMINI.md
 
-# External data, test scripts, and output results
-external/
+# External data: only the MCD column read by the Stage 2 drivers is tracked
+external/*
+!external/mcd_profiles/
+external/mcd_profiles/*
+!external/mcd_profiles/mars_arsia_mons_my31.csv
+# Test scripts and output results
 output/
 test/
-scripts/
+# Scripts: drivers, launchers and analysis CLIs are tracked; notebooks and caches are not
+scripts/*
+!scripts/*.jl
+!scripts/*.py
+!scripts/*.sh
 
 # OS-specific files
 .DS_Store
