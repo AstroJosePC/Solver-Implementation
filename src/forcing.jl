@@ -28,6 +28,7 @@ Parameters for orographic (mountain) forcing (Gaussian hill).
     sigma::Float64 = 10000.0  # mountain half-width [m]
     x0::Float64 = 100000.0    # mountain center [m]
     U_bar::Float64 = 20.0     # background wind speed [m/s]
+    t_ramp::Float64 = 0.0     # tanh ramp time [s]: w scaled by tanh(t/t_ramp); 0 = impulsive
 end
 
 """
@@ -159,9 +160,71 @@ function pressure_pulse_ic!(Q::Array{Float64,3}, grid::Grid2D,
 end
 
 """
+    forced_w(x, t, forcing_params, forcing_type)
+
+Vertical velocity imposed at z = 0 by the bottom forcing at position x and time t.
+
+forcing_type: :linear, :linear_ramp, :gaussian, :critical, :mountain, :mountain_bell
+"""
+function forced_w(x::Float64, t::Float64, forcing_params, forcing_type::Symbol)
+    return if forcing_type == :linear
+        p = forcing_params isa WaveParams ? forcing_params : WaveParams()
+        wave_forcing_linear(x, t, p)
+    elseif forcing_type == :linear_ramp
+        p = forcing_params isa WaveParams ? forcing_params : WaveParams()
+        wave_forcing_linear_ramp(x, t, p)
+    elseif forcing_type == :gaussian
+        p = forcing_params isa WaveParams ? forcing_params : WaveParams()
+        wave_forcing_gaussian(x, t, p)
+    elseif forcing_type == :critical
+        p = forcing_params isa WaveParams ? forcing_params : WaveParams()
+        wave_forcing_critical(x, t, p)
+    elseif forcing_type == :mountain
+        p = forcing_params isa MountainParams ? forcing_params : MountainParams()
+        # The ramp is skipped at t_ramp = 0, which keeps impulsive runs bit-identical
+        p.t_ramp > 0 ? mountain_forcing(x, p) * tanh(t / p.t_ramp) : mountain_forcing(x, p)
+    elseif forcing_type == :mountain_bell
+        p = forcing_params isa MountainBellParams ? forcing_params : MountainBellParams()
+        mountain_bell_forcing(x, p)
+    else
+        0.0
+    end
+end
+
+"""
+    impose_ghost_w!(Q, i, ng, gamma, w_forced)
+
+Set w in the bottom ghost cells of column i so the face at z = 0 carries w_forced,
+keeping each ghost cell's density, u and pressure. First-order enforcement:
+(w_ghost + w_phys)/2 = w_forced, so w_ghost = 2*w_forced - w_phys.
+"""
+@inline function impose_ghost_w!(Q::Array{Float64,3}, i::Int, ng::Int, gamma::Float64,
+                                 w_forced::Float64)
+    j_phys = ng + 1
+    rho_p = Q[1, i, j_phys]
+    w_p   = Q[3, i, j_phys] / rho_p
+
+    w_g = 2.0 * w_forced - w_p
+
+    for g in 1:ng
+        j_ghost = ng + 1 - g   # j=ng (g=1), j=ng-1 (g=2)
+        rho   = Q[1, i, j_ghost]
+        u_g   = Q[2, i, j_ghost] / rho
+        w_old = Q[3, i, j_ghost] / rho
+        P     = (gamma - 1.0) * (Q[4, i, j_ghost] - 0.5 * rho * (u_g^2 + w_old^2))
+        P     = max(P, 0.0)
+        Q[3, i, j_ghost] = rho * w_g
+        Q[4, i, j_ghost] = P / (gamma - 1.0) + 0.5 * rho * (u_g^2 + w_g^2)
+    end
+    return nothing
+end
+
+"""
     apply_bottom_forcing!(Q, grid, config, t, wave_params, forcing_type)
 
-Apply wave forcing at the bottom boundary by setting w in the bottom ghost cells.
+Apply wave forcing at the bottom boundary by setting w in the bottom ghost cells,
+with the forcing evaluated at t (the start of the step). This is the `:ghost` path
+of SimConfig.bottom_forcing; the `:face` path is set up inside euler_step!.
 
 forcing_type: :linear, :gaussian, :critical, :mountain, :mountain_bell, :none
 """
@@ -173,53 +236,9 @@ function apply_bottom_forcing!(Q::Array{Float64,3}, grid::Grid2D,
         return nothing
     end
 
-    ng = grid.ng
-
     for i in phys_x(grid)
-        x = grid.x_full[i]
-
-        # Compute forced vertical velocity
-        w_forced = if forcing_type == :linear
-            p = forcing_params isa WaveParams ? forcing_params : WaveParams()
-            wave_forcing_linear(x, t, p)
-        elseif forcing_type == :linear_ramp
-            p = forcing_params isa WaveParams ? forcing_params : WaveParams()
-            wave_forcing_linear_ramp(x, t, p)
-        elseif forcing_type == :gaussian
-            p = forcing_params isa WaveParams ? forcing_params : WaveParams()
-            wave_forcing_gaussian(x, t, p)
-        elseif forcing_type == :critical
-            p = forcing_params isa WaveParams ? forcing_params : WaveParams()
-            wave_forcing_critical(x, t, p)
-        elseif forcing_type == :mountain
-            p = forcing_params isa MountainParams ? forcing_params : MountainParams()
-            mountain_forcing(x, p)
-        elseif forcing_type == :mountain_bell
-            p = forcing_params isa MountainBellParams ? forcing_params : MountainBellParams()
-            mountain_bell_forcing(x, p)
-        else
-            0.0
-        end
-
-        # Set w in ghost cells so the face at z=0 carries w_forced.
-        # We use 1st-order enforcement: (w_ghost + w_phys)/2 = w_forced
-        # => w_ghost = 2*w_forced - w_phys
-        j_phys = ng + 1
-        rho_p = Q[1, i, j_phys]
-        w_p   = Q[3, i, j_phys] / rho_p
-
-        w_g = 2.0 * w_forced - w_p
-
-        for g in 1:ng
-            j_ghost = ng + 1 - g   # j=ng (g=1), j=ng-1 (g=2)
-            rho   = Q[1, i, j_ghost]
-            u_g   = Q[2, i, j_ghost] / rho
-            w_old = Q[3, i, j_ghost] / rho
-            P     = (config.gamma - 1.0) * (Q[4, i, j_ghost] - 0.5 * rho * (u_g^2 + w_old^2))
-            P     = max(P, 0.0)
-            Q[3, i, j_ghost] = rho * w_g
-            Q[4, i, j_ghost] = P / (config.gamma - 1.0) + 0.5 * rho * (u_g^2 + w_g^2)
-        end
+        w_forced = forced_w(grid.x_full[i], t, forcing_params, forcing_type)
+        impose_ghost_w!(Q, i, grid.ng, config.gamma, w_forced)
     end
 
     return nothing

@@ -62,3 +62,24 @@ function apply_sponge!(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
     end
     return nothing
 end
+
+
+"""
+    apply_sponge_exp!(Q, Q_bar, sponge, dt)
+
+Exact relaxation of the split damping step (SimConfig.sponge_step = :split):
+Q = Q_bar + (Q - Q_bar) * exp(-K dt) on every cell with K > 0.
+"""
+function apply_sponge_exp!(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
+                           sponge::SpongeLayer, dt::Float64)
+    K = sponge.K
+    for j in axes(Q, 3), i in axes(Q, 2)
+        if K[i, j] > 0.0
+            f = exp(-K[i, j] * dt)
+            for k in 1:4
+                Q[k, i, j] = Q_bar[k, i, j] + (Q[k, i, j] - Q_bar[k, i, j]) * f
+            end
+        end
+    end
+    return nothing
+end

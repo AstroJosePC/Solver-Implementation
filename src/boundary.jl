@@ -90,7 +90,7 @@ r = 0.2 (80% weight on previous timestep), which we adopt here.
 function apply_radiation_top_klemp_durran!(
     Q::Array{Float64,3}, Q_bar::Array{Float64,3},
     grid::Grid2D, gamma::Float64,
-    kd::KlempDurranState)
+    kd::KlempDurranState; pbar_mode::Symbol = :total)
 
     ng = grid.ng
     nx = grid.nx
@@ -135,7 +135,7 @@ function apply_radiation_top_klemp_durran!(
 
             # Background state at ghost cell
             rho_bar_g = Q_bar[1, ii, j_ghost]
-            P_bar_g = (gamma - 1.0) * Q_bar[4, ii, j_ghost]
+            P_bar_g = (gamma - 1.0) * background_pressure_energy(Q_bar, ii, j_ghost, pbar_mode)
 
             # Clamp perturbation to maintain linear regime validity
             phi_max = alpha_clamp * P_bar_g
@@ -308,7 +308,8 @@ numerical stability at near-vacuum densities (rho ~ 1e-10 to 1e-8 kg/m^3).
 """
 function apply_outflow_top_characteristic!(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
                                            grid::Grid2D, gamma::Float64,
-                                           R_gas::Float64, T0::Float64)
+                                           R_gas::Float64, T0::Float64;
+                                           pbar_mode::Symbol = :total)
     ng = grid.ng
     nz = grid.nz
     dz = grid.dz
@@ -339,8 +340,8 @@ function apply_outflow_top_characteristic!(Q::Array{Float64,3}, Q_bar::Array{Flo
         P_1   = (gamma - 1.0) * (E_1 - 0.5 * rho_1 * (u_1^2 + w_1^2))
 
         # Background primitives (u_bar = w_bar = 0)
-        P_bar_t = (gamma - 1.0) * (Q_bar[4, i, j_top] - 0.0)   # no KE in background
-        P_bar_1 = (gamma - 1.0) * (Q_bar[4, i, j_top1] - 0.0)
+        P_bar_t = (gamma - 1.0) * background_pressure_energy(Q_bar, i, j_top, pbar_mode)
+        P_bar_1 = (gamma - 1.0) * background_pressure_energy(Q_bar, i, j_top1, pbar_mode)
 
         # Perturbation gradients (background gradient subtracted)
         drho_dz = ((rho_t - rho_bar_t) - (rho_1 - rho_bar_1)) / dz
@@ -392,7 +393,7 @@ function apply_outflow_top_characteristic!(Q::Array{Float64,3}, Q_bar::Array{Flo
 
             # Background at ghost cell (from Q_bar, preserves hydrostatic balance)
             rho_bar_g = Q_bar[1, i, j_ghost]
-            P_bar_g   = (gamma - 1.0) * Q_bar[4, i, j_ghost]
+            P_bar_g   = (gamma - 1.0) * background_pressure_energy(Q_bar, i, j_ghost, pbar_mode)
 
             # Extrapolate perturbations using filtered gradients
             rho_pert_g = rho_pert_t + drho_dz_f * dist
@@ -459,7 +460,8 @@ function apply_all_bcs!(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
                         bc_bottom_type::Symbol = :reflective,
                         R_gas::Float64 = 287.0,
                         T0::Float64 = 239.0,
-                        kd_state::Union{Nothing, KlempDurranState} = nothing)
+                        kd_state::Union{Nothing, KlempDurranState} = nothing,
+                        pbar_mode::Symbol = :total)
     if bc_x_type == :outflow
         apply_outflow_x!(Q, Q_bar, grid)
     else
@@ -473,9 +475,11 @@ function apply_all_bcs!(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
     end
 
     if bc_type == :klemp_durran && kd_state !== nothing
-        apply_radiation_top_klemp_durran!(Q, Q_bar, grid, gamma, kd_state)
+        apply_radiation_top_klemp_durran!(Q, Q_bar, grid, gamma, kd_state;
+                                          pbar_mode = pbar_mode)
     elseif bc_type == :characteristic
-        apply_outflow_top_characteristic!(Q, Q_bar, grid, gamma, R_gas, T0)
+        apply_outflow_top_characteristic!(Q, Q_bar, grid, gamma, R_gas, T0;
+                                          pbar_mode = pbar_mode)
     else
         apply_outflow_top!(Q, Q_bar, grid)
     end

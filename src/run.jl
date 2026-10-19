@@ -64,6 +64,28 @@ function run_simulation(config::SimConfig;
     Q_half_x = similar(Q)
     Q_half_z = similar(Q)
 
+    # Bottom forcing path (SimConfig.bottom_forcing): :face needs the reflective
+    # bottom, whose mirror it reapplies after the x-sweep
+    face_forcing = config.bottom_forcing === :face
+    face_forcing || config.bottom_forcing === :ghost ||
+        error("bottom_forcing must be :ghost or :face, got :$(config.bottom_forcing)")
+    face_forcing && (bc_bottom_type == :reflective && forcing_type != :none ||
+        error("bottom_forcing = :face needs bc_bottom_type = :reflective and a forcing"))
+    w_face = face_forcing ? zeros(grid.nx) : nothing
+
+    # Mechanism switches (Section 14 addendum 2). A split sponge passes a zero K to
+    # the LW step and relaxes exactly after it.
+    config.sponge_step in (:inline, :split) ||
+        error("sponge_step must be :inline or :split, got :$(config.sponge_step)")
+    config.sweep_order in (:xz, :zx) ||
+        error("sweep_order must be :xz or :zx, got :$(config.sweep_order)")
+    sponge_split = config.sponge_step === :split
+    K_lw = sponge_split ? zero(sponge_layer.K) : sponge_layer.K
+    probe = config.face_probe > 0 ? FaceProbe(grid) : nothing
+    probe_t = Float64[]
+    probe_rows = Dict(f => Vector{Vector{Float64}}()
+                      for f in (:wf, :w_ghost, :w_avg, :w_rebuilt, :p_ghost, :p_rebuilt))
+
     # Coupling buffer
     coupling_buffer = Dict{Symbol, Vector{Float64}}[]
 
@@ -100,7 +122,10 @@ function run_simulation(config::SimConfig;
     omega_ac = acoustic_cutoff(config.gamma, config.g, cs)
     @printf("  c_s=%.1f m/s, H=%.1f km, N=%.4f rad/s, omega_ac=%.4f rad/s\n",
             cs, H/1e3, N_bv, omega_ac)
-    @printf("  Forcing: %s, t_end=%.1f s\n", forcing_type, config.t_end)
+    @printf("  Forcing: %s (%s path), t_end=%.1f s\n", forcing_type, config.bottom_forcing,
+            config.t_end)
+    @printf("  Sweep order: %s, sponge: %s%s\n", config.sweep_order, config.sponge_step,
+            probe === nothing ? "" : @sprintf(", face probe every %d steps", config.face_probe))
     @printf("  Viscosity: %s, Cooling: %s\n",
             config.enable_viscosity ? "ON" : "OFF",
             config.enable_cooling ? "ON" : "OFF")
@@ -119,17 +144,54 @@ function run_simulation(config::SimConfig;
         dt = compute_adaptive_dt(Q, grid, config.CFL, config.gamma, config.R_gas)
         dt = min(dt, config.t_end - t)  # don't overshoot t_end
 
+        # Robustness guard: a collapsing timestep means a cell has gone
+        # (near-)supersonic, i.e. wave breaking / blowup. Abort early rather than
+        # churning thousands of ~1e-12 s steps. Healthy dt is O(0.1-1 s); the
+        # tiny final step clamped toward t_end is excluded.
+        if dt < 1e-4 && (config.t_end - t) > 1e-4
+            @printf("ERROR: timestep collapse (dt=%.3e s) at step %d, t=%.3f s; aborting (likely wave breaking)\n",
+                    dt, step_count, t)
+            break
+        end
+
         # 1. Apply boundary conditions
         apply_all_bcs!(Q, Q_bar, grid, config.gamma;
                        bc_type=bc_type, bc_x_type=bc_x_type,
-                       bc_bottom_type=bc_bottom_type, kd_state=kd_state)
+                       bc_bottom_type=bc_bottom_type, kd_state=kd_state,
+                       pbar_mode=config.pbar_mode)
 
-        # 2. Apply bottom forcing
-        apply_bottom_forcing!(Q, grid, config, t, wave_params, forcing_type)
+        # 2. Apply bottom forcing: ghost cells now (:ghost), or the forced w at
+        #    t^{n+1/2} for the z-sweep (:face)
+        if face_forcing
+            for i in phys_x(grid)
+                w_face[i - grid.ng] = forced_w(grid.x_full[i], t + 0.5 * dt,
+                                               wave_params, forcing_type)
+            end
+        else
+            apply_bottom_forcing!(Q, grid, config, t, wave_params, forcing_type)
+        end
 
-        # 3. Euler step (hyperbolic) — sponge damping is integrated inside as source term
+        # Ground-face probe of this step, forced w at the path's own time level
+        do_probe = probe !== nothing && step_count % config.face_probe == 0
+        if do_probe
+            tf = face_forcing ? t + 0.5 * dt : t
+            for i in phys_x(grid)
+                probe.wf[i - grid.ng] = forced_w(grid.x_full[i], tf, wave_params, forcing_type)
+            end
+        end
+
+        # 3. Euler step (hyperbolic) — sponge damping is integrated inside as source term,
+        #    or applied as an exact split relaxation after it (sponge_step = :split)
         euler_step!(Q, Q_bar, Q_half_x, Q_half_z, grid, dt, config.gamma, config.g,
-                    sponge_layer.K)
+                    K_lw; pbar_mode=config.pbar_mode, w_face=w_face,
+                    order=config.sweep_order, probe=do_probe ? probe : nothing)
+        sponge_split && apply_sponge_exp!(Q, Q_bar, sponge_layer, dt)
+        if do_probe
+            push!(probe_t, t)
+            for (f, v) in probe_rows
+                push!(v, copy(getfield(probe, f)))
+            end
+        end
 
         # Enforce positivity to prevent floating point crashes at 160km
         for j in 1:grid.nz_total
@@ -175,6 +237,7 @@ function run_simulation(config::SimConfig;
         # Diagnostics
         if step_count % diag_interval == 0
             print_diagnostics(step_count, t, dt, Q, Q_bar, grid, config)
+            flush(stdout)   # live logs under redirection (per-step cost monitoring)
 
             # Check for blowup
             min_rho, min_P = check_positivity(Q, grid, config.gamma)
@@ -218,6 +281,8 @@ function run_simulation(config::SimConfig;
             push!(coupling_buffer, record)
         end
     end
+
+    probe === nothing || write_face_probe_nc(outdir, grid, config, probe_t, probe_rows)
 
     wall_end = time()
     duration = wall_end - wall_start

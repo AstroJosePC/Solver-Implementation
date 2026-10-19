@@ -64,6 +64,13 @@ function write_snapshot_nc(Q::Array{Float64,3}, grid::Grid2D, config::SimConfig,
                     ds.attrib["step"] = step
                     ds.attrib["gamma"] = config.gamma
                     ds.attrib["g"] = config.g
+                    # Provenance of the well-balanced flux and damping layer
+                    ds.attrib["pbar_mode"] = string(config.pbar_mode)
+                    ds.attrib["K0_sponge"] = config.K0_sponge
+                    ds.attrib["sponge_frac"] = config.sponge_frac
+                    ds.attrib["bottom_forcing"] = string(config.bottom_forcing)
+                    ds.attrib["sponge_step"] = string(config.sponge_step)
+                    ds.attrib["sweep_order"] = string(config.sweep_order)
 
                     # Data variables
                     rho_var = defVar(ds, "rho", Float64, ("x", "z"),
@@ -95,6 +102,35 @@ function write_snapshot_nc(Q::Array{Float64,3}, grid::Grid2D, config::SimConfig,
         end
     end
 
+    return fname
+end
+
+"""
+    write_face_probe_nc(outdir, grid, config, t, rows)
+
+Write the ground-face probe records (SimConfig.face_probe, FaceProbe in src/euler.jl)
+to outdir/face_probe.nc: one [time, x] variable per recorded field, w in m/s and p' in
+Pa, with the step start time t^n of each record.
+"""
+function write_face_probe_nc(outdir::String, grid::Grid2D, config::SimConfig,
+                             t::Vector{Float64}, rows::Dict)
+    fname = abspath(joinpath(outdir, "face_probe.nc"))
+    isfile(fname) && rm(fname)
+    lock(IO_LOCK) do
+        NCDataset(fname, "c") do ds
+            defDim(ds, "time", length(t))
+            defDim(ds, "x", grid.nx)
+            ds.attrib["bottom_forcing"] = string(config.bottom_forcing)
+            ds.attrib["sweep_order"] = string(config.sweep_order)
+            ds.attrib["probe_interval_steps"] = config.face_probe
+            defVar(ds, "time", t, ("time",), attrib = Dict("units" => "s"))
+            defVar(ds, "x", collect(grid.x), ("x",), attrib = Dict("units" => "m"))
+            for (f, v) in rows
+                # Julia order (x, time), read as [time, x] from Python, as the snapshots
+                defVar(ds, string(f), reduce(hcat, v), ("x", "time"))
+            end
+        end
+    end
     return fname
 end
 

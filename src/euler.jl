@@ -34,6 +34,19 @@ function compute_flux_z(Q::AbstractVector, P_bar::Float64, gamma::Float64)
 end
 
 """
+    background_pressure_energy(Q_bar, i, j, pbar_mode)
+
+The energy whose (gamma - 1) multiple is taken as the background pressure P_bar:
+Q_bar[4] itself for :total, Q_bar[4] minus the background kinetic energy for
+:pressure. Returning Q_bar[4] unchanged for :total keeps earlier runs bit-identical.
+"""
+@inline function background_pressure_energy(Q_bar::Array{Float64,3}, i::Int, j::Int,
+                                            pbar_mode::Symbol)
+    pbar_mode === :total && return Q_bar[4, i, j]
+    return Q_bar[4, i, j] - 0.5 * (Q_bar[2, i, j]^2 + Q_bar[3, i, j]^2) / Q_bar[1, i, j]
+end
+
+"""
     compute_source(Q, rho_bar, g)
 
 Compute source vector S for gravitational terms.
@@ -69,34 +82,44 @@ function compute_adaptive_dt(Q::Array{Float64,3}, grid::Grid2D,
 end
 
 """
-    euler_step!(Q, Q_bar, Q_half_x, Q_half_z, grid, dt, gamma, g, sponge_K)
+    z_predictor(Q, Q_bar, sponge_K, i, j, dt, dtdz, gamma, g, pbar_mode)
 
-Perform one full Euler timestep using dimensionally-split Richtmyer Lax-Wendroff.
-
-Step 1: X-sweep (Eqs. 9a, 9b) - updates Q with x-fluxes
-Step 2: Z-sweep (Eqs. 10a, 10b) - updates Q with z-fluxes, source terms, and sponge
-
-Sponge damping K*(Q_bar - Q) is included as a source term inside the LW integration
-(both predictor and corrector) rather than applied as a separate operator-split step.
-Q_half_x and Q_half_z are pre-allocated workspace arrays of shape (4, nx_total, nz_total).
+Half state of Eq. 10a on the face j+1/2 of column i:
+Q_{j+1/2}^{n+1/2} = 0.5*(Q_j + Q_{j+1}) - (dt/2dz)*(G_{j+1} - G_j) + (dt/2)*S_avg,
+with S the gravity source plus the in-step sponge K*(Q_bar - Q).
 """
-function euler_step!(Q::Array{Float64,3},
-                     Q_bar::Array{Float64,3},
-                     Q_half_x::Array{Float64,3},
-                     Q_half_z::Array{Float64,3},
-                     grid::Grid2D, dt::Float64,
-                     gamma::Float64, g::Float64,
-                     sponge_K::Matrix{Float64})
-    dx = grid.dx
-    dz = grid.dz
-    dtdx = dt / dx
-    dtdz = dt / dz
+@inline function z_predictor(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
+                             sponge_K::Matrix{Float64}, i::Int, j::Int, dt::Float64,
+                             dtdz::Float64, gamma::Float64, g::Float64, pbar_mode::Symbol)
+    Qj   = SVector(Q[1,i,j], Q[2,i,j], Q[3,i,j], Q[4,i,j])
+    Qjp1 = SVector(Q[1,i,j+1], Q[2,i,j+1], Q[3,i,j+1], Q[4,i,j+1])
+    P_bar_j   = (gamma - 1.0) * background_pressure_energy(Q_bar, i, j, pbar_mode)
+    P_bar_jp1 = (gamma - 1.0) * background_pressure_energy(Q_bar, i, j+1, pbar_mode)
+    Gj   = compute_flux_z(Qj, P_bar_j, gamma)
+    Gjp1 = compute_flux_z(Qjp1, P_bar_jp1, gamma)
+    Sj   = compute_source(Qj, Q_bar[1, i, j], g)
+    Sjp1 = compute_source(Qjp1, Q_bar[1, i, j+1], g)
+    Kj   = sponge_K[i, j]
+    Kjp1 = sponge_K[i, j+1]
+    return SVector(ntuple(Val(4)) do k
+        sp_j   = Kj   * (Q_bar[k, i, j]   - Qj[k])
+        sp_jp1 = Kjp1 * (Q_bar[k, i, j+1] - Qjp1[k])
+        0.5 * (Qj[k] + Qjp1[k]) -
+        0.5 * dtdz * (Gjp1[k] - Gj[k]) +
+        0.25 * dt * (Sj[k] + Sjp1[k] + sp_j + sp_jp1)
+    end)
+end
+
+"""
+    x_sweep!(Q, Q_half_x, grid, dt, gamma)
+
+Richtmyer Lax-Wendroff x-sweep (Eqs. 9a, 9b) over the physical rows.
+"""
+function x_sweep!(Q::Array{Float64,3}, Q_half_x::Array{Float64,3}, grid::Grid2D,
+                  dt::Float64, gamma::Float64)
+    dtdx = dt / grid.dx
     ix = phys_x(grid)
     iz = phys_z(grid)
-
-    # =========================================================================
-    # X-SWEEP: Richtmyer Lax-Wendroff (Eq. 9a, 9b)
-    # =========================================================================
 
     # Predictor (Eq. 9a): compute half-step values at i+1/2 interfaces
     # Q_{i+1/2}^{n+1/2} = 0.5*(Q_i + Q_{i+1}) - (dt/2dx)*(F_{i+1} - F_i)
@@ -129,32 +152,41 @@ function euler_step!(Q::Array{Float64,3},
             end
         end
     end
+    return nothing
+end
 
-    # =========================================================================
-    # Z-SWEEP: Richtmyer Lax-Wendroff with source terms (Eq. 10a, 10b)
-    # =========================================================================
+"""
+    z_sweep!(Q, Q_bar, Q_half_z, grid, dt, gamma, g, sponge_K; pbar_mode, w_face)
 
-    # Predictor (Eq. 10a):
-    # Q_{j+1/2}^{n+1/2} = 0.5*(Q_j + Q_{j+1}) - (dt/2dz)*(G_{j+1} - G_j) + (dt/2)*S_avg
+Richtmyer Lax-Wendroff z-sweep with gravity and sponge sources (Eqs. 10a, 10b).
+With `w_face` (the :face path) the bottom ghost rows are first rebuilt from the
+current state (reflective mirror, then the forced w), and the ground-face half state
+of the first physical row's corrector takes w = w_face with its density, u and
+pressure kept.
+"""
+function z_sweep!(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
+                  Q_half_z::Array{Float64,3}, grid::Grid2D, dt::Float64,
+                  gamma::Float64, g::Float64, sponge_K::Matrix{Float64};
+                  pbar_mode::Symbol = :total,
+                  w_face::Union{Nothing, Vector{Float64}} = nothing)
+    dtdz = dt / grid.dz
+    ix = phys_x(grid)
+    iz = phys_z(grid)
+
+    # Face forcing: ghost rows consistent with the state entering the z-sweep
+    if w_face !== nothing
+        apply_bottom_bc!(Q, Q_bar, grid)
+        for i in ix
+            impose_ghost_w!(Q, i, grid.ng, gamma, w_face[i - grid.ng])
+        end
+    end
+
+    # Predictor (Eq. 10a)
     for j in (first(iz)-1):(last(iz))
         for i in ix
-            Qj   = SVector(Q[1,i,j], Q[2,i,j], Q[3,i,j], Q[4,i,j])
-            Qjp1 = SVector(Q[1,i,j+1], Q[2,i,j+1], Q[3,i,j+1], Q[4,i,j+1])
-            P_bar_j   = (gamma - 1.0) * Q_bar[4, i, j]
-            P_bar_jp1 = (gamma - 1.0) * Q_bar[4, i, j+1]
-            Gj   = compute_flux_z(Qj, P_bar_j, gamma)
-            Gjp1 = compute_flux_z(Qjp1, P_bar_jp1, gamma)
-            Sj   = compute_source(Qj, Q_bar[1, i, j], g)
-            Sjp1 = compute_source(Qjp1, Q_bar[1, i, j+1], g)
-            Kj   = sponge_K[i, j]
-            Kjp1 = sponge_K[i, j+1]
-
+            q = z_predictor(Q, Q_bar, sponge_K, i, j, dt, dtdz, gamma, g, pbar_mode)
             for k in 1:4
-                sp_j   = Kj   * (Q_bar[k, i, j]   - Qj[k])
-                sp_jp1 = Kjp1 * (Q_bar[k, i, j+1] - Qjp1[k])
-                Q_half_z[k, i, j] = 0.5 * (Qj[k] + Qjp1[k]) -
-                                    0.5 * dtdz * (Gjp1[k] - Gj[k]) +
-                                    0.25 * dt * (Sj[k] + Sjp1[k] + sp_j + sp_jp1)
+                Q_half_z[k, i, j] = q[k]
             end
         end
     end
@@ -168,8 +200,18 @@ function euler_step!(Q::Array{Float64,3},
                              Q_half_z[3,i,j], Q_half_z[4,i,j])
             Qh_bot = SVector(Q_half_z[1,i,j-1], Q_half_z[2,i,j-1],
                              Q_half_z[3,i,j-1], Q_half_z[4,i,j-1])
-            P_bar_top = 0.5 * (gamma - 1.0) * (Q_bar[4,i,j] + Q_bar[4,i,j+1])
-            P_bar_bot = 0.5 * (gamma - 1.0) * (Q_bar[4,i,j-1] + Q_bar[4,i,j])
+            if w_face !== nothing && j == first(iz)
+                # Ground face: impose w, keep the predictor's density, u and pressure
+                rho_f, u_f, _, P_f = primitive_from_conservative(Qh_bot, gamma)
+                wf = w_face[i - grid.ng]
+                Qh_bot = SVector(rho_f, rho_f * u_f, rho_f * wf,
+                                 P_f / (gamma - 1.0) + 0.5 * rho_f * (u_f^2 + wf^2))
+            end
+            Eb_jm1 = background_pressure_energy(Q_bar, i, j-1, pbar_mode)
+            Eb_j   = background_pressure_energy(Q_bar, i, j,   pbar_mode)
+            Eb_jp1 = background_pressure_energy(Q_bar, i, j+1, pbar_mode)
+            P_bar_top = 0.5 * (gamma - 1.0) * (Eb_j + Eb_jp1)
+            P_bar_bot = 0.5 * (gamma - 1.0) * (Eb_jm1 + Eb_j)
             rho_bar_top = 0.5 * (Q_bar[1,i,j] + Q_bar[1,i,j+1])
             rho_bar_bot = 0.5 * (Q_bar[1,i,j-1] + Q_bar[1,i,j])
             Gh_top = compute_flux_z(Qh_top, P_bar_top, gamma)
@@ -194,5 +236,91 @@ function euler_step!(Q::Array{Float64,3},
         end
     end
 
+    return nothing
+end
+
+"""
+    FaceProbe(grid)
+
+Workspace and per-column record of the ground face (z = 0) as the z-predictor sees it
+(SimConfig.face_probe; Section 14 addendum 2). `wf` is set by the caller to the forced
+w of the step. probe_ground_face! fills, for the state entering the z-sweep:
+`w_ghost`, `p_ghost`: w and p' (minus the face P_bar) of the predictor half state with
+the ghost rows as they stand (the :ghost path); `w_avg`: w of the plain average of the
+ghost and first physical cells; `w_rebuilt`, `p_rebuilt`: the same predictor with the
+ghost rows rebuilt from the current state and wf (step 4 of the :face path).
+"""
+struct FaceProbe
+    wf::Vector{Float64}
+    w_ghost::Vector{Float64}
+    w_avg::Vector{Float64}
+    w_rebuilt::Vector{Float64}
+    p_ghost::Vector{Float64}
+    p_rebuilt::Vector{Float64}
+    Qc::Array{Float64,3}
+end
+FaceProbe(grid::Grid2D) = FaceProbe([zeros(grid.nx) for _ in 1:6]...,
+                                    zeros(4, grid.nx_total, grid.nz_total))
+
+function probe_ground_face!(pr::FaceProbe, Q::Array{Float64,3}, Q_bar::Array{Float64,3},
+                            grid::Grid2D, dt::Float64, gamma::Float64, g::Float64,
+                            sponge_K::Matrix{Float64}, pbar_mode::Symbol)
+    ng = grid.ng
+    dtdz = dt / grid.dz
+    copyto!(pr.Qc, Q)
+    apply_bottom_bc!(pr.Qc, Q_bar, grid)
+    for i in phys_x(grid)
+        impose_ghost_w!(pr.Qc, i, ng, gamma, pr.wf[i - ng])
+    end
+    for i in phys_x(grid)
+        c = i - ng
+        P_bar_face = 0.5 * (gamma - 1.0) * (background_pressure_energy(Q_bar, i, ng, pbar_mode) +
+                                            background_pressure_energy(Q_bar, i, ng + 1, pbar_mode))
+        qa = z_predictor(Q, Q_bar, sponge_K, i, ng, dt, dtdz, gamma, g, pbar_mode)
+        qb = z_predictor(pr.Qc, Q_bar, sponge_K, i, ng, dt, dtdz, gamma, g, pbar_mode)
+        _, _, wa, Pa = primitive_from_conservative(qa, gamma)
+        _, _, wb, Pb = primitive_from_conservative(qb, gamma)
+        pr.w_ghost[c], pr.p_ghost[c] = wa, Pa - P_bar_face
+        pr.w_rebuilt[c], pr.p_rebuilt[c] = wb, Pb - P_bar_face
+        pr.w_avg[c] = (Q[3, i, ng] + Q[3, i, ng + 1]) / (Q[1, i, ng] + Q[1, i, ng + 1])
+    end
+    return nothing
+end
+
+"""
+    euler_step!(Q, Q_bar, Q_half_x, Q_half_z, grid, dt, gamma, g, sponge_K;
+                pbar_mode, w_face, order, probe)
+
+Perform one full Euler timestep using dimensionally-split Richtmyer Lax-Wendroff:
+the x-sweep (Eqs. 9a, 9b) then the z-sweep (Eqs. 10a, 10b), or the reverse with
+`order = :zx` (SimConfig.sweep_order).
+
+Sponge damping K*(Q_bar - Q) is included as a source term inside the LW integration
+(both predictor and corrector); the :split sponge of SimConfig.sponge_step is applied
+by the caller after this step, with a zero `sponge_K` passed here.
+Q_half_x and Q_half_z are pre-allocated workspace arrays of shape (4, nx_total, nz_total).
+
+`w_face` (length nx, SimConfig.bottom_forcing = :face) is the imposed ground w at
+t^{n+1/2}; see z_sweep!. `nothing` (the default) leaves the ghost rows as set before
+the step. `probe` (a FaceProbe) records the ground face of the state entering the
+z-sweep without changing the solution.
+"""
+function euler_step!(Q::Array{Float64,3},
+                     Q_bar::Array{Float64,3},
+                     Q_half_x::Array{Float64,3},
+                     Q_half_z::Array{Float64,3},
+                     grid::Grid2D, dt::Float64,
+                     gamma::Float64, g::Float64,
+                     sponge_K::Matrix{Float64};
+                     pbar_mode::Symbol = :total,
+                     w_face::Union{Nothing, Vector{Float64}} = nothing,
+                     order::Symbol = :xz,
+                     probe::Union{Nothing, FaceProbe} = nothing)
+    order === :xz && x_sweep!(Q, Q_half_x, grid, dt, gamma)
+    probe === nothing ||
+        probe_ground_face!(probe, Q, Q_bar, grid, dt, gamma, g, sponge_K, pbar_mode)
+    z_sweep!(Q, Q_bar, Q_half_z, grid, dt, gamma, g, sponge_K;
+             pbar_mode = pbar_mode, w_face = w_face)
+    order === :zx && x_sweep!(Q, Q_half_x, grid, dt, gamma)
     return nothing
 end

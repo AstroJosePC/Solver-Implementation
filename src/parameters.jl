@@ -44,6 +44,11 @@ Fields:
 - `cooling_width`: vertical spread of cooling region [m] (default 25000.0)
 - `sponge_frac`: fraction of domain height for sponge layer
 - `K0_sponge`: maximum sponge damping coefficient [1/s]
+- `pbar_mode`: background pressure in the vertical flux (:pressure or :total)
+- `bottom_forcing`: path of the imposed ground w (:ghost or :face)
+- `sponge_step`: damping layer inside the Lax-Wendroff step (:inline) or split (:split)
+- `sweep_order`: dimensional splitting order, x then z (:xz) or z then x (:zx)
+- `face_probe`: steps between ground-face probe records (0 = off)
 """
 @kwdef struct SimConfig
     # Grid
@@ -85,6 +90,32 @@ Fields:
     # Sponge layer
     sponge_frac::Float64 = 0.15   # top 15% of domain
     K0_sponge::Float64 = 0.005    # [1/s], Srivastava optimal
+
+    # Background pressure subtracted in the well-balanced vertical flux:
+    # :pressure = the background pressure alone (default); :total =
+    # (gamma-1)*Q_bar[4], which includes (gamma-1)*rho_bar*|u_bar|^2/2 and acts as
+    # a spurious gravity under a mean wind. Scripts that regenerate records made
+    # before 2026-09-23 with a mean wind pin :total. With zero mean wind the two
+    # are bit-identical. See docs/reflection_convergence_tests.md Sections 9, 11.
+    pbar_mode::Symbol = :pressure
+
+    # How the imposed ground w enters the Lax-Wendroff z-sweep:
+    # :ghost = ghost-cell w set at the start of the step, before the x-sweep, with the
+    # forcing at t^n (every record so far); :face = forcing at t^{n+1/2}, ghost rows
+    # rebuilt after the x-sweep, and the ground-face half state of the corrector
+    # given w = w_forced. See docs/reflection_convergence_tests.md, Section 14 addendum.
+    bottom_forcing::Symbol = :ghost
+
+    # Mechanism switches of the Section 14 addendum 2 (each default keeps every
+    # earlier record bit for bit). sponge_step: :inline = K (Q_bar - Q) as a source
+    # inside both LW stages; :split = no sponge in the LW step, then the exact
+    # relaxation Q = Q_bar + (Q - Q_bar) exp(-K dt) after it. sweep_order: :xz = x-sweep
+    # then z-sweep; :zx = the reverse. face_probe > 0 records, every that many steps,
+    # the ground-face w and p' of the z-predictor (src/euler.jl, FaceProbe) to
+    # face_probe.nc in the run directory, without changing the solution.
+    sponge_step::Symbol = :inline
+    sweep_order::Symbol = :xz
+    face_probe::Int = 0
 end
 
 """
