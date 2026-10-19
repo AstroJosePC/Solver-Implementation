@@ -4502,3 +4502,306 @@ parallel, about 90 GB. The h = 3 km cases aborted at the top under the ghost pat
 (Section 13), and the same is expected here. Recommendation, from S2: either add a
 `dz` = 250 m twin of U40 h0.1 (about 14 h, 18 GB), or quote every Stage 2 flux with the S2
 resolution row (-8 % at 30 km, -12 % at 10 km, growing through 6 to 9 h).
+
+## 15. Face-path production and the h = 1 km resolution pair (pre-registration)
+
+Written on 2026-10-19, before any run below was launched. Nothing registered in Sections 1
+to 14 is changed. Policy, unchanged: every new run passes `bcface=1` explicitly, the
+`SimConfig` default stays `:ghost`, and `sweep_arsia_mons_stage2.jl` keeps `pbar=0` as its
+default while every run here passes `pbar=1`. No absolute Stage 2 flux from this batch is
+quoted before the readings below are scored. Each one then carries the vertical-resolution
+row of Section 11 (S14S2 against S14M2) unless a reading here replaces it.
+
+Run identifiers follow the project naming: `S15F1`, `S15F2` and `S15T1` for the test runs,
+`PR1-U<U>-h<h>` for the production cases, and `S14V3p` for the Queney attribution run, which
+continues V3 of Section 14 addendum 3. `S15F1` is also the production case `PR1-U40-h1.0`
+and is run once.
+
+### What Section 14 settled
+
+- The face path is `dt`-independent above the near-ground 2 dz layer on every column tested:
+  uniform wind with one mode (+0.03 % per halving of `dt`), the Gaussian ridge (S14V1a/b,
+  +0.09 %), the MCD column (S14M1/M2, +0.35 % at `MF(30.25)` over 6 to 9 h) and the
+  launch-consistent column (S14S3E/F, +0.02 %).
+- The face-path level is stationary to 30 h in uniform wind (S14S1, 24 to 30 h mean 1.0200,
+  hourly range 0.40 %), and reversing the splitting order does not change the MCD flux
+  (S14S4, -0.03 %).
+- The ridge and the single mode both lie about 12 % above their layer-resolved linear theory
+  (S14V1a/b 1.121 and 1.122), within 3.5 % of the open-column value `Q4`.
+- On the MCD column the face-path flux at `dz` = 500 m is not resolved to 5 % in `dz`
+  (S14S2, -7.66 % at `MF(30.25)`, -12.5 % at 10.25 km, -6.0 % at 50.25 km, growing through
+  the window). Stage 2 fluxes at 500 m therefore need a 250 m twin or the Section 11 row.
+- Open items carried here: the H = 0 mass and energy drift of S14V2m against S14Z0, and the
+  2.49 % Table 11 error of both Queney paths against the 0.74 % of Srivastava et al. (2022).
+
+### Zero-cost checks run before this registration
+
+Analysis products are in `output/analysis/s15/` unless stated.
+
+**a. Error budget.** The vertical-resolution row from S14S2 was added to the Section 11
+table (not summed): +8.3 % relative to 250 m at `MF(30.25)` (-7.7 % on halving `dz`),
+-12.5 % at `MF(10.25)`, -6.0 % at `MF(50.25)`, growing through 6 to 9 h.
+
+**b. H = 0 mass and energy audit.** Recorded as the note dated 2026-10-19 under the V2 results
+of addendum 3 (`zequil --budget`, 2 s). The face-path drift closes on the top outflow and the
+sponge to 1 %, which are the same on both paths to 0.3 %. The 13 times smaller mass drift
+and the 10 % smaller energy drift of S14Z0 come from a net inflow through its ground face:
+with `h = 0` the ghost path still mirrors the velocity rather than the momentum
+(`impose_ghost_w!`), and the stratified ghost background leaves `rho w` non-zero in the
+ground-face predictor. Proposal, awaiting approval and not used by any reading below: for
+face-path runs on the MCD column, the equilibrium reference of the standing criteria
+becomes S14V2m (`drho_L2` peak 4.260e-5, 0.5 to 1 h mean 7.734e-6, last 6.08e-6, energy
+drift -6.686e-7).
+
+**c. Overturning in the archived ghost-path 24 h records at h = 1 km.** New subcommand
+`analyze_dt_convergence.py zoverturn` (definitions in the next subsection), every second
+snapshot (about 132 s), about 10 min for the three records over the mount,
+`zoverturn_ghost24h_U<U>_h1.{json,log}`. Records:
+`output/arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h/run_U<U>.0_h1.0` (ghost path,
+CFL 0.4, mean `dt` 0.659 s). First onset, time and lowest height:
+
+| record | 0-5 km convective | 5-20 km convective, kinematic | 20-45 km convective, kinematic | 45-55 km convective, kinematic | `z_L` at the 20-45 km onset |
+|---|---|---|---|---|---|
+| U20 h1.0 | 5.35 h, 1.00 km | 11.61 h, 5.50 km; none | none; none | 9.37 h, 54.50 km; 8.42 h, 54.25 km | (51.25 km at 24 h) |
+| U40 h1.0 | 3.55 h, 1.00 km | 6.96 h, 5.00 km; 12.48 h, 6.75 km | 19.40 h, 44.50 km; none | 6.22 h, 54.50 km; 4.54 h, 52.25 km | 48.75 km |
+| U57 h1.0 | 2.97 h, 1.00 km | 5.56 h, 5.00 km; 7.54 h, 6.75 km | 12.15 h, 44.00 km; 13.46 h, 44.75 km | 5.31 h, 54.50 km; 3.66 h, 54.25 km | 47.25 km (45.75 km at the kinematic onset) |
+
+No face is statically unstable at t = 0 in any record. Readings, descriptive:
+- The criterion as first proposed (first `min_x u <= 0` or `d theta/dz < 0` anywhere below
+  55 km) fires at 3.0 to 5.3 h in all three records. It is set by the first cell pairs of
+  the calm layer (1.0 km, inside the near-ground 2 dz layer) and by the critical-level
+  region at 52 to 54.5 km. A 3 h window ending there lies in 0 to 5.3 h, inside the 2 h
+  ramp and the start-up transient, where steady quantities are not quoted. The window of
+  this registration is therefore keyed to the free column, 20 to 45 km.
+- In the free column the first overturning lies at 44.0 to 44.75 km, at 12.2 h for U57
+  and 19.4 h for U40, and does not occur by 24 h for U20. The order follows the forcing
+  amplitude `U h`.
+- It lies 3.25 to 4.25 km below the WKB Lindzen height of the same snapshot (convective
+  onset), and 1.0 km below it at the U57 kinematic onset.
+- These ghost-path times bound the face-path onset from above rather than predict it. On
+  this column at `h` = 0.1 km the face path carries 1.64 times the ghost flux at 30.25 km
+  (an amplitude ratio of about 1.28), so the face-path onset is expected earlier than in
+  the ghost twin.
+- Ghost-path linearity ratios at equal `dt` (from `timeseries.json` of Section 13), U40,
+  `MF(h=1) / (100 MF(h=0.1))` at 30.25 km: 0.71 over 6 to 9 h, 1.62 over 16.4 to 19.4 h
+  (the 3 h before the free-column onset), 1.57 over 18 to 24 h.
+
+**d. The Queney Table 11 metric, decomposed.** `zqueney --metric-tops 10 20 40` on S14V3g
+and S14V3f (2 s, `queney_V3_metric_split.json`), last snapshot (9.97 h), face path:
+
+| depth | metric [% of `U`] | x-mean part | wave part | rms of the Queney `u'` | max over z of the x-mean of `u - U` [m/s] |
+|---|---|---|---|---|---|
+| 0 to 10 km | 0.308 | 0.274 | 0.140 | 0.562 | 0.0007 |
+| 0 to 20 km | 0.607 | 0.432 | 0.426 | 0.902 | 0.0013 |
+| 0 to 40 km | 2.495 | 1.291 | 2.135 | 2.737 | 0.0061 |
+
+The parts add in quadrature. The ghost path gives the same values to 0.02 points.
+- At t = 0, with no wave in the domain, the 0 to 40 km metric is 2.737 %, the rms of the
+  Queney `u'` itself.
+- The x-mean part (1.291 %) is the x-mean of the infinite-domain Queney `u'` over the
+  240 km domain. The run's own x-mean wind departs from `U` by at most 0.006 m/s, so this
+  part is a floor that a periodic run conserving the level-mean momentum cannot remove.
+  Under this metric the 0.74 % of Srivastava lies below the floor, so the two numbers are
+  consistent only if the published metric is defined differently (open item; the
+  definition in the paper is to be re-read).
+- The wave part is concentrated above 20 km. At 25 to 40 km the run carries 0.29 to 0.50
+  of the steady Queney `|u'|` (0.48 against 0.95 m/s at 25 km, 0.85 against 2.24 m/s at
+  40 km), against 0.75 to 0.78 at 2 to 15 km. With a hydrostatic vertical group velocity
+  `U^2 k / N` of about 0.8 m/s for `k = 1/a`, the steady solution reaches about 30 km in
+  10 h. The wave part is therefore consistent with an incomplete establishment of the
+  steady solution after the impulsive start. It does not reflect a background drift.
+- The `:total` drift moves the x-mean wind by at most 0.006 m/s (0.03 % of `U`).
+
+### Definitions used by the readings
+
+- Height bands: 0 to 5 km (the calm layer and the 4.5 km critical level), 5 to 20 km,
+  20 to 45 km (the free column), 45 to 55 km (the upper critical level, 53.3 km initially,
+  and the layer above it).
+- Convective overturning: `theta(j+1) < theta(j)` between adjacent levels at any `x`, with
+  `theta = T P^(-kappa)`, `kappa = (gamma - 1)/gamma`, at the face height.
+- Kinematic overturning: `u sign(u_bar) <= 0` at a level where `|u_bar| >= 5` m/s and the
+  current x-mean `u` keeps the sign of `u_bar` (which excludes the descent of a critical
+  level). `u_bar` is the x-mean `u` of snapshot 0.
+- First free-column overturning `t_ov`: the first snapshot, every second one (about
+  132 s at both grids), with convective or kinematic overturning in 20 to 45 km. `z_ov` is
+  its lowest height.
+- Lindzen height `z_L(t)`: the lowest height above 10.25 km at which the stationary-wave
+  amplitude, grown from the x-max of `|u - <u>_x|` at 10.25 km by
+  `|u'| ∝ (N / (rho |u_bar|))^(1/2)` (constant flux, `c = 0`; Lindzen 1981), reaches
+  `|u_bar|`, below the first zero of `u_bar` above 10.25 km (53.75 km on the 500 m grid).
+- Pre-collapse window of the pair: `[t* - 3 h, t*]`, with `t*` the earlier of `t_ov` of
+  S15F1 and S15F2, or 18 to 24 h if neither overturns by 24 h. If `t*` falls before 9 h the
+  window starts at 6 h. If `t*` falls before 8 h the window criterion is not scored, and
+  the reading says that the window lies inside the start-up transient. The window of a
+  single run (F-c) uses its own `t_ov`.
+- Window means: the hour rows of `suite` whose time lies inside the window, as in
+  Section 14. A value within 0.5 percentage points of a band edge is reported at the edge,
+  and the reading of the higher band applies.
+
+### Runs
+
+Common arguments `C24` = `hours=24 pbar=1 ramp=2 k0=0.005 lz=95 bcface=1`
+(`sweep_arsia_mons_stage2.jl`). All runs use `julia -t 1`, `OPENBLAS_NUM_THREADS=1` and
+output under `~/MAGNUSP_runs`. The s per step are measured awake rates of the a3 batch
+with eleven processes.
+
+| id | purpose | arguments | `dt` [s] | steps | s per step (source) | est. wall | disk [GB] | directory under `~/MAGNUSP_runs` |
+|---|---|---|---|---|---|---|---|---|
+| S15F1 (PR1-U40-h1.0) | `h` = 1 km, `dz` = 500 m | `C24 u=40 h=1` | 0.659 | 131 000 | 0.099 (S14S4) | 3.6 h | 10.0 | `arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_bcface/run_U40.0_h1.0` |
+| S15F2 | `h` = 1 km, `dz` = 250 m | `C24 u=40 h=1 dz=250 outint=200` | 0.328 | 263 000 | 0.186 (S14S2) | 13.6 h | 20.0 | `arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dz250_bcface/run_U40.0_h1.0` |
+| S15T1 | CFL 0.2 twin of PR1-U40-h0.1 | `C24 u=40 h=0.1 cfl=0.2 outint=200` | 0.330 | 262 000 | 0.096 (S14S3F) | 7.0 h | 10.0 | `..._bcface_cfl0.2/run_U40.0_h0.1` |
+| PR1-U20-h0.1, PR1-U40-h0.1, PR1-U57-h0.1 | production, `h` = 0.1 km | `C24 u=<U> h=0.1` | 0.659 | 131 000 | 0.099 | 3.6 h | 10.0 each | `..._bcface/run_U<U>.0_h0.1` |
+| PR1-U20-h1.0, PR1-U57-h1.0 | production, `h` = 1 km | `C24 u=<U> h=1` | 0.659 | 131 000 | 0.099 | 3.6 h | 10.0 each | `..._bcface/run_U<U>.0_h1.0` |
+| PR1-U20-h3.0, PR1-U40-h3.0, PR1-U57-h3.0 | `h` = 3 km precursors and collapse times, no flux quoted | `C24 u=<U> h=3` | 0.66 or less | up to 131 000 | 0.099 | up to 3.6 h | up to 10.0 each | `..._bcface/run_U<U>.0_h3.0` |
+| S14V3p | Queney, face path, `pbar=1` | Queney driver `--dx=250 --tend_hr=10 --bcface=1 --pbar=1` | 0.304 | 118 400 | 0.017 (S14V3f) | 0.6 h | 0.6 | `mountain_benchmark_strict_10h_dx250_bcface_pbarP/run_U18_b10` |
+
+Budget: twelve processes in one batch, below the 16 performance cores. The wall clock is
+set by S15F2, 13.6 h at the a3 rate, and 15 to 18 h if twelve processes add the 10 to 30 %
+of contention seen before. The CPU time summed over the estimated `real` values is about
+54 h. Disk is about 121 GB, against 3.3 TB free locally and 1.5 TB free on the archive
+mount, and the archive copy takes about 1.5 h at the a3 rate (31 GB in 1 370 s). Neither
+disk nor concurrency calls for two sub-batches, so the set runs as one (`s15`).
+
+### Readings fixed before launch
+
+Each reading is recorded against these statements, and a failed prediction is recorded as
+failed.
+
+**F-a, first overturning (S15F1, S15F2).** Reported for each run and each band: the time
+and lowest height of the first convective and the first kinematic overturning, and `z_L`
+at that snapshot. Registered reading for the free column, with
+`dz_L = z_ov - z_L(t_ov)`:
+
+| outcome | reading |
+|---|---|
+| `|dz_L|` at most 2 km | consistent with WKB saturation of the transmitted wave at the Lindzen height |
+| `dz_L` below -2 km | overturning below the WKB saturation height |
+| `dz_L` above +2 km | overturning above the WKB saturation height |
+| no free-column overturning by 24 h | reported as such, no `dz_L` |
+
+Second statement: `t_ov` of S15F1 and S15F2 differ by less than 1 h (onset resolved in
+`dz`). Expected: `dz_L` of -3 to -4.5 km in both runs (row 2, from check c), and `t_ov` of
+S15F1 between 12 and 19.4 h, earlier than the ghost-path U40 h1.0 record. The second
+statement is expected to fail with low confidence, since the 250 m grid resolves thinner
+unstable layers.
+
+**F-b, resolution of the h = 1 km flux (S15F1 against S15F2).**
+- Criterion, pre-collapse window: the `MF(30.25)` change is below 5 %. Met: `dz` = 500 m is
+  resolved to 5 % for the transmitted `h` = 1 km flux. Not met: every `h` = 1 km flux is
+  quoted with the measured S15F2/S15F1 row.
+- Second statement, 6 to 9 h: the `MF(30.25)` change lies within 3 points of the -7.66 %
+  of S14S2 at `h` = 0.1 km (-10.66 to -4.66 %). Within: the 6 to 9 h `dz` term does not
+  depend on the forcing amplitude between `h` = 0.1 and 1 km. Outside: it depends on the
+  amplitude.
+- Reported without a criterion: `MF(10.25)`, `MF(50.25)`, `R10/30`, `R50/30`, `MF(1.25)`,
+  in both windows and by hour.
+- Expected: the criterion fails, with a change of -5 to -12 % (the S2 size and its growth
+  through the window), and the second statement holds with low confidence, since the
+  near-ground layer is nonlinear at `h` = 1 km.
+
+**F-c, linearity (S15F1 against PR1-U40-h0.1).** `L = MF(S15F1) / (100 MF(PR1-U40-h0.1))`
+at 10.25, 30.25 and 50.25 km, over 6 to 9 h and over the pre-collapse window of S15F1
+alone. Bands on `L` at 30.25 km: 0.9 to 1.1, linear; below 0.9, sub-linear; above 1.1,
+super-linear. Expected from the ghost-path ratios at equal `dt` (check c): sub-linear over
+6 to 9 h (about 0.7) and super-linear over the pre-collapse window (about 1.6).
+
+**T1, late-time `dt` independence (PR1-U40-h0.1 against S15T1, 18 to 24 h).**
+
+| outcome | reading |
+|---|---|
+| `MF(30.25)` and `MF(50.25)` each change by less than 1 % | the 6 to 9 h `dt` independence (+0.35 %) holds after the 19.5 h jet wrap |
+| the larger change is 1 to 5 % | the `dt` dependence grows at late times and stays within the 5 % production criterion of the standing table |
+| either change is 5 % or more | the face path is not `dt`-independent at late times on this column |
+
+Expected: the second row, with low confidence. The hourly change grew by about 0.12 points
+per hour over 6 to 9 h (+0.20, +0.34, +0.45 %), which extrapolates to about +2 % at 21 h.
+The steadiness of the `h` = 0.1 km records after 20.5 h (hourly range 3 to 7.5 %,
+Section 13) allows the growth to stop.
+
+**H3, the h = 3 km cases (PR1-U<U>-h3.0).** Diagnostics only. The Section 14
+classification stands, so no `h` = 3 km flux is quoted. `zh3` thresholds as in Z3, and the
+abort time, against the ghost-path records of Section 13 (Z3 for U40 and U57; U20 from
+check c of this section, `z3_ghost24h_U20_h3.json`):
+
+| ghost record | ground `|T/T_0 - 1|` > 0.5 | top `|w|` > 5 m/s | 20-60 km unstable fraction > 1 % | end |
+|---|---|---|---|---|
+| U20 h3.0 | 7.50 h | none | 10.39 h | completed 24 h |
+| U40 h3.0 | 3.84 h | 5.45 h | 6.64 h | aborted at 10.11 h |
+| U57 h3.0 | 2.82 h | 4.56 h | 5.55 h | aborted at 6.82 h |
+
+Registered reading, per case: `bcface=1` alters the timing if any of the four entries
+differs from its ghost value by more than 0.5 h, or if a crossing appears or disappears or
+the end changes. Otherwise the timing is unchanged. The H_L order (ground, then top, then
+free column) is reported for each case. Expected: altered and earlier in all three cases,
+since at CFL 0.4 the face path launches more amplitude near the ground (face/ghost 1.465 at
+1.25 km on the launch-consistent column, S14S3E against S14E). The H_L order is expected to
+hold, and PR1-U20-h3.0 may abort.
+
+**P, production fluxes (PR1 at h = 0.1 and 1 km).** No band is registered. Reported:
+completion, the Section 12 criteria rows (steadiness, `MF(55.25)/MF(50.25)`, the descent of
+the 53.3 km critical level, the x-mean density departure below 45 km), the hourly `MF` at
+the five levels, the 18 to 24 h means and, for the `h` = 1 km cases, the pre-collapse
+window from `zoverturn`. Every absolute value carries the Section 11 resolution row (S14S2
+at `h` = 0.1 km; S15F2/S15F1 at `h` = 1 km if F-b fails). For amplitude, these records
+supersede the ghost-path Stage 2 values of Section 13.
+
+**V3p, the pbar attribution of the Queney error (S14V3p against S14V3f).** The pair differs
+in one degree of freedom (`pbar_mode` `:total` to `:pressure`), at the same face path, `dx`,
+CFL and 10 h.
+
+| Table 11 metric of S14V3p (0 to 40 km, last snapshot) | reading |
+|---|---|
+| within 0.05 points of S14V3f (2.445 to 2.545 %) | the `:total` background drift does not drive the 2.49 %; the metric is set by the x-mean floor and the incomplete establishment (check d) |
+| 1.0 % or less | the `:total` drift is the main driver |
+| any other value | partial or unattributed |
+
+Also reported: the 0 to 10 and 0 to 20 km metric with its split, the largest x-mean of
+`u - U`, and the `w` amplitude ratio S14V3p/S14V3f over 8 to 10 h. Expected: the first row,
+since check d bounds the drift at 0.006 m/s. Under the metric as implemented, neither path
+can reach 0.74 % (floor 1.29 %), so this pair cannot close the gap to Srivastava. It tests
+only whether `pbar` changes the solution.
+
+### Scoring commands
+
+All read archived output only (`analyze_dt_convergence.py` unless stated), with the
+products written to `output/analysis/s15/`:
+- F-a: `zoverturn --run S15F1=<F1 dir> --run S15F2=<F2 dir> --stride 2 --out output/analysis/s15/zoverturn_F.json`;
+  the production `h` = 1 km cases with `--run PR1-U20-h1.0=... --run PR1-U57-h1.0=...`.
+- F-b: `suite --run S15F1=<F1> --run S15F2=<F2> --window 6 9 --pair S15F1:S15F2 --outdir output/analysis/s15/f_6_9`,
+  and the same with `--window <t*-3> <t*>` and `--outdir output/analysis/s15/f_pre`.
+- F-c: `suite --run PR1-U40-h0.1=<dir> --run S15F1=<F1> --window 6 9 --pair PR1-U40-h0.1:S15F1`,
+  and with the S15F1 pre-collapse window; `L` is the printed ratio divided by 100.
+- T1: `suite --run PR1-U40-h0.1=<dir> --run S15T1=<dir> --window 18 24 --pair PR1-U40-h0.1:S15T1 --outdir output/analysis/s15/t1`.
+- H3: `zh3 --run <PR1-U<U>-h3.0 dir> --stride 2 --out output/analysis/s15/z3_face_U<U>_h3.json`.
+- V3p: `zqueney --ghost <S14V3f dir> --face <S14V3p dir> --metric-tops 10 20 40 --out output/analysis/s15/queney_V3p.json`
+  (the labels are positional: `--ghost` takes S14V3f here).
+- P: `analyze_arsia_stage2.py --sweep-dir <PR1 sweep> --timeseries --outdir output/analysis/s15/pr1`.
+
+The `--window` and `--pair` options of `suite` were checked on archived records before this
+registration: S14M2 against S14S2 over 6 to 9 h reproduces the S2 changes (-7.66 %,
+-5.19 %, +1.82 %, -12.5 %, -6.0 %).
+
+### Code for Section 15
+
+Each new path sits behind a switch whose default is the earlier behaviour.
+- `run_mountain_benchmark_strict.jl`: `--pbar=1` selects `pbar_mode = :pressure` and
+  appends `_pbarP` to the default output directory. The default 0 keeps the pinned `:total`.
+- `analyze_dt_convergence.py`: `zoverturn` (new); `zequil --budget`; `suite --window` and
+  `--pair`; `zqueney --metric-tops`. All read archived output only.
+- `run_dt_convergence_S2T95.sh`: set `s15`; logs named by run ID (`case_id`), with the S14
+  names unchanged for the earlier sets; at launch the set records the git commit, the dirty
+  flag and `git diff` (`S15.git.diff`), writes a provenance header at the top of each log
+  (command, hashes, BLAS threads, concurrency, local and archive paths) and appends one row
+  per run to `docs/run_matrix.csv` when it ends; `archive` copies a sweep shared by several
+  cases once; `check` adds the Queney face path with `pbar=1`, which must complete on
+  `:pressure`.
+
+### Check before launch
+
+`dry s15` resolved all twelve cases to the intended grid, CFL, `pbar_mode`, ground path and
+output directory (`output/analysis/s15/S15.dry.log`). `check` (83 s, driver, Queney driver
+and `src/` hash `c503a6c106887e07`) reproduced with `max |diff|` exactly 0.0 in every shared
+snapshot: 0.1 h of S04 (6 snapshots), C2R (5), S14G1 (5), C2R with `probe=5` (5), S14M1 (6),
+and the Queney driver on its default path against its pre-addendum-3 copy (2), 29 snapshots
+in all. The Queney face path completed, and so did the Queney face path with `pbar=1`, on
+`:pressure` (`output/analysis/s15/S15.check.log`).
