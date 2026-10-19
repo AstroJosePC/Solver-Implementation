@@ -83,6 +83,11 @@
 #   `probe=N` (face_probe = N: ground-face w and p' of the z-predictor every N steps
 #   to face_probe.nc; leaves the solution unchanged, no tag). Tag order is
 #   ..._ramp<T>h_dx<N>_dz<N>_ub<Z>_bcface_spsplit_zx_cfl<X>.
+#   Section 16 options (docs/reflection_convergence_tests.md): `alt=1` (sweep_order
+#   = :alternate, tag _alt) or `strang=1` (:strang, x(dt/2) z(dt) x(dt/2), tag
+#   _strang) in place of `zx=1`, and `opstrang=1` (operator_split = :strang: split sponge,
+#   diffusion and cooling over dt/2 on both sides of the step, tag _opS, after the
+#   sweep tag). `final=1` also writes the snapshot at t_end (no tag).
 #   Optional `lx=NNNN` (km) overrides the baseline width of any mode, e.g.
 #   `julia ... sweep_arsia_mons_stage2.jl lx=3000`. The solver itself is serial (no
 #   @threads in src/), so -t auto only helps the multi-combination sweep modes.
@@ -213,7 +218,13 @@ const UBLEND_KM = getarg("ublend", 0.0)
 const BOTTOM_FORCING = getarg("bcface", 0.0) > 0 ? :face : :ghost
 # Mechanism switches of the Section 14 addendum 2; 0 keeps the default path.
 const SPONGE_STEP = getarg("spsplit", 0.0) > 0 ? :split : :inline
-const SWEEP_ORDER = getarg("zx", 0.0) > 0 ? :zx : :xz
+const SWEEP_ORDER = getarg("strang", 0.0) > 0 ? :strang :
+                    getarg("alt", 0.0) > 0 ? :alternate :
+                    getarg("zx", 0.0) > 0 ? :zx : :xz
+# Symmetric split operators (Section 16); 0 keeps the Lie sequence.
+const OPERATOR_SPLIT = getarg("opstrang", 0.0) > 0 ? :strang : :lie
+# `final=1` also writes the state at t_end (SimConfig.final_snapshot); no tag.
+const FINAL_SNAPSHOT = getarg("final", 0.0) > 0
 const FACE_PROBE = Int(getarg("probe", 0.0))
 UBLEND_KM >= 0 || error("ublend must be >= 0")
 UBLEND_KM > 0 && (LINEAR || SMOKE || WIDTH_SWEEP) &&
@@ -235,7 +246,9 @@ const SPGLABEL = (K0_SPONGE == 0.05 ? "" : "_K0_$(K0_SPONGE)") *
                  (UBLEND_KM == 0 ? "" : "_ub$(numlabel(UBLEND_KM))") *
                  (BOTTOM_FORCING === :ghost ? "" : "_bcface") *
                  (SPONGE_STEP === :inline ? "" : "_spsplit") *
-                 (SWEEP_ORDER === :xz ? "" : "_zx") *
+                 (SWEEP_ORDER === :xz ? "" : "_" * Dict(:zx => "zx", :alternate => "alt",
+                                                        :strang => "strang")[SWEEP_ORDER]) *
+                 (OPERATOR_SPLIT === :lie ? "" : "_opS") *
                  (CFL_NUM == 0.4 ? "" : "_cfl$(CFL_NUM)")
 
 # Representative N for the nonlinearity diagnostic Nh/U (lower-atmosphere mean).
@@ -353,8 +366,8 @@ end
 @printf("  pbar_mode: %s | forcing ramp: %s | ground w: %s | CFL=%.2f\n",
         PBAR_MODE, RAMP_H > 0 ? "tanh(t/$(numlabel(RAMP_H)) h)" : "none (impulsive)",
         BOTTOM_FORCING, CFL_NUM)
-@printf("  sponge   : %s | sweep order: %s | face probe: %s\n  output   : %s\n",
-        SPONGE_STEP, SWEEP_ORDER, FACE_PROBE > 0 ? "every $(FACE_PROBE) steps" : "off",
+@printf("  sponge   : %s | sweep order: %s | split ops: %s | face probe: %s\n  output   : %s\n",
+        SPONGE_STEP, SWEEP_ORDER, OPERATOR_SPLIT, FACE_PROBE > 0 ? "every $(FACE_PROBE) steps" : "off",
         sweep_base)
 "dryrun" in ARGS && exit(0)   # print the resolved configuration only
 
@@ -389,6 +402,8 @@ Threads.@threads for params in combinations_arr
         bottom_forcing = BOTTOM_FORCING,
         sponge_step = SPONGE_STEP,
         sweep_order = SWEEP_ORDER,
+        operator_split = OPERATOR_SPLIT,
+        final_snapshot = FINAL_SNAPSHOT,
         face_probe = FACE_PROBE,
     )
 

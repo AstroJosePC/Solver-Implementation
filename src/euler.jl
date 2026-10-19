@@ -304,6 +304,11 @@ Q_half_x and Q_half_z are pre-allocated workspace arrays of shape (4, nx_total, 
 t^{n+1/2}; see z_sweep!. `nothing` (the default) leaves the ghost rows as set before
 the step. `probe` (a FaceProbe) records the ground face of the state entering the
 z-sweep without changing the solution.
+
+`order = :strang` runs x(dt/2) z(dt) x(dt/2). `refresh_x` (a function of Q, e.g. the
+periodic x boundary) is called before every x-sweep that follows another sweep; it is
+required for :strang and, as `nothing`, keeps the :zx record, whose x-sweep reads the
+x ghosts set before the z-sweep.
 """
 function euler_step!(Q::Array{Float64,3},
                      Q_bar::Array{Float64,3},
@@ -315,12 +320,20 @@ function euler_step!(Q::Array{Float64,3},
                      pbar_mode::Symbol = :total,
                      w_face::Union{Nothing, Vector{Float64}} = nothing,
                      order::Symbol = :xz,
-                     probe::Union{Nothing, FaceProbe} = nothing)
+                     probe::Union{Nothing, FaceProbe} = nothing,
+                     refresh_x::Union{Nothing, Function} = nothing)
+    if order === :strang
+        refresh_x === nothing && error("order = :strang needs refresh_x")
+        x_sweep!(Q, Q_half_x, grid, 0.5 * dt, gamma)
+        refresh_x(Q)
+    end
     order === :xz && x_sweep!(Q, Q_half_x, grid, dt, gamma)
     probe === nothing ||
         probe_ground_face!(probe, Q, Q_bar, grid, dt, gamma, g, sponge_K, pbar_mode)
     z_sweep!(Q, Q_bar, Q_half_z, grid, dt, gamma, g, sponge_K;
              pbar_mode = pbar_mode, w_face = w_face)
+    order === :xz || refresh_x === nothing || refresh_x(Q)
     order === :zx && x_sweep!(Q, Q_half_x, grid, dt, gamma)
+    order === :strang && x_sweep!(Q, Q_half_x, grid, 0.5 * dt, gamma)
     return nothing
 end
