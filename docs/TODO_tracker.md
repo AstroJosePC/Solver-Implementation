@@ -625,6 +625,26 @@
         wall (S15F2), ~54 CPU h, ~121 GB. OPEN: git state (src/ uncommitted on main; docs/
         and scripts/ git-ignored, so the prereg commit and tag rules cannot be met as is);
         launch waits on that decision.
+        Update 2026-10-19 (Section 15 results): the OPEN git item above is resolved (branch
+        dev/s15-face-production, tags prereg/s15-face-h1 and run/s15-20261019). Batch s15
+        ran 02:11:48 to 11:58:55; S15F2 was stopped at 11.73 h after the registered windows
+        were covered (t* = 10.92 h), because the global sparse LU in src/diffusion.jl is
+        refactored whenever dt changes by > 1 % and the cost rose to ~1.5 s per step (dated
+        note in Section 15). Archived with no checksum difference. Readings: F-b FAILED
+        (h = 1 km dz term -41 % at MF(30.25) pre-collapse, -58 % at 6-9 h; new Section 11
+        row; the pair agrees to 3 % before the calm-layer overturning at ~3 h); F-a t_ov
+        13.02 h (S15F1) and 10.92 h (S15F2), dz_L +6.75 and -1.88 km, expected -3 to -4.5
+        km failed, z_L unstable on the 500 m grid at h = 1 km; F-c L(30.25) 1.36 at 6-9 h
+        (expected sub-linear, failed) and 1.32 pre-collapse (super-linear, met); T1 +4.3 %
+        at 18-24 h (1-5 % row, met; hourly change still rising, +6.8 % at 23.5 h, new
+        Section 11 row); H3 altered and earlier in all three (met), order fails in U20;
+        V3p null (2.496 against 2.495 %, met). OPEN: (1) h = 1 km fluxes are not resolved at
+        dz = 500 m and 250 m is not shown converged; a 125 m h = 1 km segment to ~6 h, or a
+        decision to quote h = 1 km only with the measured row. (2) diffusion solver speed:
+        rfft-in-x plus per-mode tridiagonal z solve (same discrete system; operator is
+        separable, not column block-diagonal) and lu! symbolic reuse, behind a SimConfig
+        switch, with an on/off pair; to be registered in a new doc. (3) late-time dt
+        dependence grows past 5 % in the last two hours of the 24 h record.
     (g) Which N does each downstream quantity use? Opened 2026-09-01. N_REF = 0.018 s^-1 is
         the near-surface inversion value (N = 0.01763 at z = 0.25 km), not a lower-atmosphere
         mean; over 10-55 km in this column N is 0.0078-0.0097 with a mean of 0.00849, a

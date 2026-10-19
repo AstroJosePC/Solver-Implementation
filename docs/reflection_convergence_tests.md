@@ -1493,6 +1493,8 @@ record with a mean wind is superseded.
 | level, ghost-path forcing on the MCD column | -39 % at `MF(30.25)` at CFL 0.4 (S14M1/S04 = 1.64, 6-9 h); not uniform in height (1.94 at 10.25 km, 1.53 at 50.25 km), so normalized ratios carry it too (`R10/30` -15 %, `R50/30` +7 %) | added 2026-10-02 (Section 14 addendum 3); new runs use `bcface=1` |
 | 2 dz boundary mode | ground amplitude about 0.30 of the smooth `w` (0.21 to 0.35 across paths and grids); penetration about `dz^2 / (2 c dt)` in uniform wind (0.36 to 3.7 km); on the MCD column 0.45 to 0.6 of the smooth `w` through the calm layer | added 2026-10-02 (Section 14 addendum 3); descriptive |
 | vertical grid spacing on the MCD column (face path, `dz` = 500 m against 250 m, S14M2 against S14S2, 6-9 h) | +8.3 % relative to 250 m at `MF(30.25)` (-7.7 % change on halving `dz`); -12.5 % change at `MF(10.25)`, -6.0 % at `MF(50.25)`; `R10/30` -5.2 %, `R50/30` +1.8 %; the `MF(30.25)` change grows through the window (-5.8, -7.8, -8.8 % by hour) | added 2026-10-19 (Section 14 addendum 3, S2); applies to every absolute Stage 2 flux at `dz` = 500 m until a 250 m record replaces it |
+| vertical grid spacing at `h` = 1 km (face path, `dz` = 500 m against 250 m, S15F1 against S15F2) | pre-collapse window 7.92 to 10.92 h: -41.1 % change at `MF(30.25)` on halving `dz` (+70 % relative to 250 m), -38.6 % at `MF(50.25)`, `MF(10.25)` changes sign; 6 to 9 h: -58.2 % at `MF(30.25)`, -53.4 % at `MF(50.25)`, -88.4 % at `MF(10.25)`; the pair agrees within 3 % through 2.5 h and separates after the first calm-layer overturning (2.7 to 3.2 h); the 250 m value is not shown to be converged | added 2026-10-19 (Section 15, F-b failed); applies to every `h` = 1 km flux at `dz` = 500 m |
+| time step at late times (face path, CFL 0.4 against 0.2, PR1-U40-h0.1 against S15T1, 18 to 24 h, `h` = 0.1 km) | +4.3 % at `MF(30.25)` and +4.2 % at `MF(50.25)` for the CFL 0.2 run; the hourly change grows from +2.5 % at 18.5 h to +6.8 % at 23.5 h | added 2026-10-19 (Section 15, T1); the 6 to 9 h value is +0.35 % (Section 14) |
 
 ### Ramped-forcing pair
 
@@ -4822,3 +4824,198 @@ power every 60 s to `~/MAGNUSP_runs/logs/S15.cost.tsv`. Logs are
 `S15.start`. Each case appends its row to `docs/run_matrix.csv` when it ends. All twelve
 logged their first diagnostic line within 2 min. The launcher in `scripts/` is not edited
 while the batch runs.
+
+### Note added 2026-10-19 on stopping S15F2 at 11.73 h
+
+This note does not change any reading above. It records that S15F2 did not run to 24 h.
+
+The per-step cost of S15F2 rose from about 0.2 s (05:00 to 07:30, twelve then eleven
+processes) to about 1.5 s by 11:30 (one process), measured from the modification times of
+consecutive snapshots 200 steps apart. `pmset -g log` has no sleep or DarkWake entry after
+02:11 and the process held 99 % CPU. A 5 s `sample` of the process
+(`~/MAGNUSP_runs/logs/S15F2.sample.txt`) places about 90 % of the samples in UMFPACK
+(`umfpack_dl_numeric` about 54 %, `umfpack_dl_symbolic` about 33 %). `diffusion_step!` in
+`src/diffusion.jl` refactors the global sparse LU of the Crank-Nicolson matrices
+(1000 x 380 unknowns) whenever `dt` departs by more than 1 % from the `dt` of the current
+factorization, and with `dt` set by the growing wave (0.33 s falling to 0.10 s) that
+happens on most steps. This changes wall clock only. At the rate observed at 11:30 the
+remaining 12.3 h of model time would have needed 50 h or more of wall clock.
+
+Coverage of the registered readings was checked before stopping, with the registered
+`zoverturn` command (`--stride 2`) run on the local snapshots. These are preliminary
+values, written to `output/analysis/s15/prelim/`; the scored values come from the archived
+copies.
+
+| run | first convective, 20 to 45 km | first kinematic, 20 to 45 km | `t_ov` |
+|---|---|---|---|
+| S15F1 | 13.02 h, 44.5 km | 14.14 h, 44.25 km | 13.02 h |
+| S15F2 (snapshots to 11.71 h) | 10.92 h, 44.25 km | 11.71 h, 20.125 km | 10.92 h |
+
+With `t*` = 10.92 h the pre-collapse window of the pair is 7.92 to 10.92 h, inside the
+S15F2 record. F-a, both F-b windows and the F-a second statement need S15F2 only up to its
+own `t_ov`, so no registered reading depends on S15F2 after 11.73 h. On this basis S15F2
+was stopped with SIGTERM at 2026-10-19 11:58:55, right after `snapshot_0142400.nc`
+(t = 11.729 h) was written and its size was stable; that file opens and reads. The stamp
+is `S15F2 exit=143`, `real` 35 226.8 s (9.79 h), and its `run_matrix.csv` row has NA for
+steps and mean `dt` because the driver did not print its completion line. The other eleven
+cases ended on their own. A solver option that avoids the repeated factorization is
+proposed for a later, separately registered section; the default path stays as run here.
+
+### Results
+
+Scored on 2026-10-19 with the registered commands only, on the archived copies under
+`output/`, with products in `output/analysis/s15/` (`zoverturn_F.json`,
+`zoverturn_PR1_h1.json`, `f_6_9/`, `f_pre/`, `fc_6_9/`, `fc_pre/`, `t1/`,
+`z3_face_U<U>_h3.json`, `queney_V3p.json`, `pr1/`, each with its `.log`). Statements not
+registered above are labelled descriptive.
+
+**Run record.** Batch `s15` ran from 02:11:48 to 11:58:55 (9.79 h) at concurrency 12, git
+`671bf32` clean, driver and `src/` hash `c503a6c106887e07`. No sleep or DarkWake entry
+appears in `pmset -g log` over the batch. `archive s15` ran from 11:59:42 to 13:32:35
+(1.55 h) with every file count matched and no checksum difference; the PR1 sweep directory
+was copied once (9150 files, nine runs). Logs are in `output/reflection_tests/logs/`.
+
+| run | end | model time | wall clock | steps | mean `dt` [s] | s per step |
+|---|---|---|---|---|---|---|
+| S14V3p | completed | 10.00 h | 34.7 min | 118 188 | 0.3046 | 0.0176 |
+| PR1-U20-h0.1 | completed | 24.00 h | 3.74 h | 131 070 | 0.6592 | 0.103 |
+| PR1-U40-h0.1 | completed | 24.00 h | 3.76 h | 131 075 | 0.6592 | 0.103 |
+| PR1-U57-h0.1 | completed | 24.00 h | 3.78 h | 131 079 | 0.6591 | 0.104 |
+| PR1-U20-h1.0 | completed | 24.00 h | 3.77 h | 131 223 | 0.6584 | 0.103 |
+| S15F1 (PR1-U40-h1.0) | `dt` collapse | 23.81 h | 6.62 h | 160 044 | 0.5356 | 0.149 |
+| PR1-U57-h1.0 | `dt` collapse | 11.99 h | 3.57 h | 78 071 | 0.5527 | 0.165 |
+| PR1-U20-h3.0 | `dt` collapse | 11.45 h | 2.86 h | 72 106 | 0.5718 | 0.143 |
+| PR1-U40-h3.0 | `dt` collapse | 7.02 h | 1.83 h | 45 200 | 0.5590 | 0.146 |
+| PR1-U57-h3.0 | `dt` collapse | 5.47 h | 1.33 h | 34 510 | 0.5705 | 0.139 |
+| S15T1 | completed | 24.00 h | 7.60 h | 262 148 | 0.3296 | 0.104 |
+| S15F2 | stopped (note above) | 11.73 h | 9.79 h | 142 400 (last snapshot) | NA | NA |
+
+S15F1 took 6.62 h against the 3.6 h estimate; the excess is consistent with the repeated
+LU factorization described in the note above, which also raises the s per step of every
+run that ended in `dt` collapse (descriptive).
+
+**F-a.** Free-column (20 to 45 km) first overturning, with `z_L` at that snapshot.
+
+| run | `t_ov` | kind | `z_ov` | `z_L(t_ov)` | `dz_L` | registered row |
+|---|---|---|---|---|---|---|
+| S15F1 | 13.02 h | convective (kinematic 14.14 h, 44.25 km) | 44.5 km | 37.75 km | +6.75 km | overturning above the WKB saturation height |
+| S15F2 | 10.92 h | convective (kinematic 11.71 h, 20.125 km) | 44.25 km | 46.125 km | -1.88 km | consistent with WKB saturation at the Lindzen height |
+| PR1-U20-h1.0 | 15.34 h | convective (no kinematic by 24 h) | 44.5 km | 50.75 km | -6.25 km | overturning below the WKB saturation height |
+| PR1-U57-h1.0 | 10.15 h | convective (kinematic 10.92 h, 40.75 km) | 20.5 km | 10.75 km | +9.75 km | overturning above the WKB saturation height |
+
+- Expected `dz_L` of -3 to -4.5 km in S15F1 and S15F2: failed in both (+6.75 and
+  -1.88 km).
+- Expected `t_ov` of S15F1 between 12 and 19.4 h and earlier than the ghost-path U40 h1.0
+  record (19.4 h): met (13.02 h).
+- Second statement, `t_ov` of S15F1 and S15F2 within 1 h: failed (2.10 h apart), as
+  expected with low confidence. The 250 m grid overturns first.
+- The production rows were registered for reporting only. Against the ghost-path records
+  of check c, PR1-U20-h1.0 overturns at 15.34 h where the ghost run did not by 24 h, and
+  PR1-U57-h1.0 at 10.15 h against 12.2 h (descriptive).
+- Premise check (descriptive). On the 500 m grid at `h` = 1 km, `z_L` alternates between
+  consecutive snapshots: 10.75 km and 35.75 to 37.75 km in S15F1 over 12.5 to 13.5 h, and
+  10.75 km at every snapshot of PR1-U57-h1.0 over 9.9 to 10.6 h. The value 10.75 km is the
+  first level above 10.25 km, which means the x-max of `|u - <u>_x|` at 10.25 km already
+  exceeds the threshold there. In S15F2, `z_L` stays within 45.9 to 46.6 km over
+  10.4 to 11.4 h. The `dz_L` readings of S15F1 and PR1-U57-h1.0 may therefore reflect the
+  near-ground nonlinearity at the reference level rather than the WKB growth of the
+  transmitted wave, because the reference amplitude is taken from a single x-maximum.
+
+**F-b.** Pre-collapse window from `t*` = 10.92 h (S15F2): 7.92 to 10.92 h, hour rows 8.5,
+9.5 and 10.5 h.
+
+| window | `MF(30.25)` S15F1, S15F2 [uPa] | change | `MF(10.25)` | `MF(50.25)` | `R10/30` | `R50/30` | `MF(1.25)` |
+|---|---|---|---|---|---|---|---|
+| 6 to 9 h | 32.60, 13.62 | -58.2 % | -88.4 % | -53.4 % | -72.2 % | +11.5 % | +68.3 % (smaller magnitude at 250 m) |
+| 7.92 to 10.92 h | 32.30, 19.03 | -41.1 % | -355.6 % (sign change) | -38.6 % | -533.8 % | +4.3 % | +33.0 % |
+
+- Criterion, pre-collapse `MF(30.25)` change below 5 %: not met (-41.1 %). Every `h` = 1 km
+  flux is quoted with the measured S15F2/S15F1 row, added to the Section 11 table. The
+  expectation that the criterion fails is met; the expected size of -5 to -12 % failed.
+- Second statement, 6 to 9 h change within -10.66 to -4.66 %: failed (-58.2 %). Under the
+  registered reading, the `dz` term at 6 to 9 h depends on the forcing amplitude between
+  `h` = 0.1 and 1 km. The expectation that it holds failed.
+- Hourly `MF(30.25)` changes (descriptive): +1.7, +0.6, -1.1 % at 0.5 to 2.5 h, then
+  -7.5, -20.6, -28.7, -36.6, -65.1, -62.4, -27.6, -21.3 % at 3.5 to 10.5 h. The separation
+  starts after the first convective overturning in the 0 to 5 km band (S15F2 2.70 h at
+  0.5 km, S15F1 3.18 h at 1.0 km). The data are consistent with a resolution dependence
+  that enters through the nonlinear near-ground layer, not through the free-column
+  propagation, which agreed to 3 % before 3 h. Two grids cannot show whether 250 m is
+  converged.
+
+**F-c.** `L = MF(S15F1) / (100 MF(PR1-U40-h0.1))`.
+
+| window | `L` at 10.25 km | `L` at 30.25 km | `L` at 50.25 km | registered band at 30.25 km |
+|---|---|---|---|---|
+| 6 to 9 h | 1.378 | 1.356 | 1.536 | super-linear |
+| 10.02 to 13.02 h (S15F1 `t_ov`) | 3.072 | 1.318 | 0.936 | super-linear |
+
+- 6 to 9 h: expected sub-linear (about 0.7); failed.
+- Pre-collapse window: expected super-linear (about 1.6); met, at 1.318.
+- Both `L` values are on the 500 m grid. F-b shows that the 500 m `h` = 1 km flux exceeds
+  the 250 m flux by 70 to 140 % in these windows, while the `h` = 0.1 km flux differs by
+  8 % (S14S2), so the linearity reading carries the resolution term (descriptive).
+
+**T1.** 18 to 24 h means, PR1-U40-h0.1 against S15T1: `MF(30.25)` 0.7035 against
+0.7340 uPa (+4.34 %), `MF(50.25)` 0.6416 against 0.6685 uPa (+4.20 %).
+
+- Registered row: the larger change is 1 to 5 %, the `dt` dependence grows at late times
+  and stays within the 5 % production criterion. The expectation (this row) is met.
+- Descriptive: the hourly `MF(30.25)` change rises monotonically, +2.45, +2.83, +3.52,
+  +4.32, +5.39, +6.76 % at 18.5 to 23.5 h, so the growth did not stop within the record,
+  and the last two hours exceed 5 %. `MF(10.25)` changes by +5.8 % and `MF(1.25)` by
+  +58.6 % (the calm-layer exclusion applies to the latter).
+
+**H3.** Face path (`zh3`, stride 2) against the ghost-path records.
+
+| case | ground `|T/T_0 - 1|` > 0.5 | top `|w|` > 5 m/s | 20-60 km unstable fraction > 1 % | end | reading |
+|---|---|---|---|---|---|
+| U20 h3.0 | 5.27 h (ghost 7.50) | 8.74 h (ghost none) | 8.52 h (ghost 10.39) | `dt` collapse at 11.45 h (ghost completed 24 h) | altered, earlier |
+| U40 h3.0 | 3.40 h (ghost 3.84) | 5.08 h (ghost 5.45) | 6.13 h (ghost 6.64) | `dt` collapse at 7.02 h (ghost 10.11 h) | altered, earlier |
+| U57 h3.0 | 2.52 h (ghost 2.82) | 4.36 h (ghost 4.56) | 5.24 h (ghost 5.55) | `dt` collapse at 5.47 h (ghost 6.82 h) | altered, earlier |
+
+- Expected altered and earlier in all three cases: met. In U40 and U57, the three crossings
+  move by 0.20 to 0.51 h and the end by 3.09 and 1.35 h, so the end time carries most of
+  the change.
+- Expected H_L order (ground, then top, then free column): met in U40 and U57; failed in
+  U20, where the free-column crossing (8.52 h) precedes the top crossing (8.74 h).
+- PR1-U20-h3.0 aborted, which the registration allowed for.
+
+**P.** Production records, no band.
+
+| run | end | `MF(30.25)` 18 to 24 h [uPa] (hourly range) | `MF(50.25)` | `MF(55.25)/MF(50.25)` | 53.3 km critical level at end | max x-mean density departure below 45 km |
+|---|---|---|---|---|---|---|
+| PR1-U20-h0.1 | 24 h | 0.1535 (26 %) | 0.1379 | 0.268 | 53.30 km | 0.098 % |
+| PR1-U40-h0.1 | 24 h | 0.7035 (27 %) | 0.6416 | 0.229 | 53.28 km | 0.375 % |
+| PR1-U57-h0.1 | 24 h | 1.579 (30 %) | 1.454 | 0.186 | 53.23 km | 0.774 % |
+| PR1-U20-h1.0 | 24 h | 47.31 (94 %) | 21.71 | 0.072 | 52.28 km | 15.3 % |
+
+For the `h` = 1 km cases the pre-collapse window means of `MF(30.25)` are 35.2 uPa
+(PR1-U20-h1.0, 12.34 to 15.34 h, hourly range 97 %), 51.0 uPa (S15F1, 10.02 to 13.02 h,
+116 %) and 80.0 uPa (PR1-U57-h1.0, 7.15 to 10.15 h, 97 %). The S15F1 18 to 24 h mean
+includes the collapse at 23.5 h and is not quoted. These values carry the Section 11
+resolution rows (+8.3 % at `h` = 0.1 km from S14S2; +70 % relative to 250 m at `h` = 1 km
+from S15F1 against S15F2) and, at 18 to 24 h, the late-time `dt` row from T1. The
+x-mean density departure below 45 km exceeds the 0.1 % background criterion in
+PR1-U40-h0.1 and PR1-U57-h0.1 and is 15 to 75 % in the `h` = 1 km records, so the
+background has changed under the waves in those records (descriptive). For amplitude these
+records supersede the ghost-path Stage 2 values of Section 13, with the caveats above.
+
+**V3p.** Table 11 metric, 0 to 40 km, last snapshot: S14V3p 2.496 % against S14V3f
+2.495 %.
+
+- Registered row: within 0.05 points of S14V3f, so the `:total` background drift does not
+  drive the 2.49 %; the metric is set by the x-mean floor and the incomplete establishment
+  (check d). The expectation (this row) is met.
+- Also reported: 0 to 10 km 0.308 % for both (x-mean 0.274, wave 0.140), 0 to 20 km
+  0.606 % against 0.607 %, the largest x-mean `|u - U|` 0.0059 against 0.0061 m/s, and the
+  `w` amplitude ratio S14V3p/S14V3f 0.975 to 0.977 over 8 to 10 h (regression 0.950 to
+  0.954), with a `dt` ratio of 1.0016. The `pbar_mode` switch moves the `w` amplitude by
+  about -2.4 % while it leaves the `u` metric unchanged (descriptive).
+
+**Summary of registered outcomes.** Statements that failed: the F-a second statement, the
+F-b criterion, the F-b second statement. Expectations met: F-a `t_ov` of S15F1, the F-a
+second statement failing, the F-b criterion failing, the F-c pre-collapse band, the T1
+row, H3 altered and earlier in all three cases, the H3 order in U40 and U57, the V3p row.
+Expectations failed: F-a `dz_L` in S15F1 and S15F2, the F-b size of -5 to -12 %, the F-b
+second statement holding, the F-c 6 to 9 h band, the H3 order in U20.
