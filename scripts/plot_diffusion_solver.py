@@ -618,6 +618,7 @@ def headline(fig, lines):
 
 def fig_convergence_plain(plt, outdir):
     from matplotlib.ticker import FixedFormatter, FixedLocator, NullLocator
+    from matplotlib.transforms import offset_copy
     R = readings()
     fig, axes = plt.subplots(3, 3, figsize=(7.0, 4.3), sharex=True, sharey=True)
     cell = {(p[3], p[4]): p for p in PAIRS}
@@ -630,10 +631,26 @@ def fig_convergence_plain(plt, outdir):
         for k, U in enumerate(WINDS):
             ax = axes[r, k]
             if r == 0:
-                ax.set_title(f"{U} m/s wind", fontsize=7.5, color=INK, pad=4)
+                # the blank first line reserves layout room for the wind arrow drawn in it
+                ax.set_title(f" \n{U} m/s wind", fontsize=7.5, color=INK, pad=4, linespacing=1.5)
+                # wind arrow above the title, length proportional to U, head growing with it
+                half = 0.32 * U / max(WINDS)
+                tr = offset_copy(ax.transAxes, fig=fig, y=19, units="points")
+                ax.annotate("", xy=(0.5 + half, 1.0), xytext=(0.5 - half, 1.0), xycoords=tr, textcoords=tr,
+                            arrowprops=dict(arrowstyle="simple,head_length=0.8,head_width=0.8,tail_width=0.3",
+                                            fc=tint(CHARCOAL, 0.55), ec="none", shrinkA=0, shrinkB=0,
+                                            mutation_scale=5 + 3.5 * U / max(WINDS)))
             if k == 2:
-                ax.annotate(f"{h:g} km hill", (1.04, 0.5), xycoords="axes fraction", rotation=270,
-                            ha="left", va="center", fontsize=7.5, color=INK)
+                # hill silhouette right of the row; height grows as sqrt(h), a schematic, not to scale
+                hx = np.linspace(0, 1, 80)
+                x0, w0, yb = 1.07, 0.30, 0.40
+                ys = yb + 0.42 * np.sqrt(h / max(HILLS)) * np.exp(-((hx - 0.5) / 0.17) ** 2)
+                ax.fill_between(x0 + w0 * hx, yb, ys, transform=ax.transAxes, color=tint(CHARCOAL, 0.55),
+                                lw=0, clip_on=False)
+                ax.plot([x0 - 0.02, x0 + w0 + 0.02], [yb, yb], transform=ax.transAxes, color=CHARCOAL, lw=0.8,
+                        clip_on=False, solid_capstyle="butt")
+                ax.text(x0 + w0 / 2, yb - 0.05, f"{h:g} km\nhill", transform=ax.transAxes, ha="center",
+                        va="top", fontsize=7.5, color=INK, linespacing=1.0)
             p = cell.get((U, h))
             if p is None:
                 ax.text(12, 1e-7, "not run", color=SLATE, ha="center", va="center", **L)
@@ -648,7 +665,8 @@ def fig_convergence_plain(plt, outdir):
             else:
                 ax.axvspan(tc, t[-1], color=span, lw=0, zorder=0)
                 ax.axvline(tc, color=OCHRE, lw=0.7, zorder=1)
-                ax.text(tc + 0.5, 3.0, f"{tc:.1f} h", color=OCHRE, ha="left", va="bottom", **L)
+                ax.text(tc + 0.5, 3.0, f"{'waves break, ' if twin == 'S02F3' else ''}{tc:.1f} h", color=OCHRE,
+                        ha="left", va="bottom", **L)
             ax.plot(t, w, color=MUTED, lw=0.6, zorder=2)
             ax.plot(t, th, color=INK, lw=1.0, zorder=3)
             if twin == "S02F1":                            # direct key in the empty right half
@@ -657,8 +675,6 @@ def fig_convergence_plain(plt, outdir):
                 ax.text(t[-1] + 0.7, w[-1], "vertical wind", color=MUTED, ha="left", va="top",
                         fontsize=6.3)
                 ax.text(23.4, 3.0, "finer grid, 9 h", color=SLATE, ha="right", va="bottom", **L)
-            if twin == "S02F3":
-                ax.text(tc + 0.5, 2e-16, "waves\nbreak", color=OCHRE, ha="left", va="top", linespacing=1.0, **L)
             if twin == "S02F5":                            # one growth-rate guide
                 x0, x1, y0 = 16.6, 22.6, -12.0
                 tau = np.log(10) * d["growth_fit"]["efold_h"]
@@ -685,7 +701,8 @@ def fig_convergence_plain(plt, outdir):
         "snapshot between the :fft_tridiag twins (set d2) and their archived :lu off members; thick ink: "
         "largest of density, horizontal wind, pressure, temperature; thin grey: vertical wind (about 9 "
         "digits). Ochre line and zone: the off member's first overturning t_c and the rest of the record. "
-        "Curves above 0 digits are clipped. Guide in the 40 m/s, 1 km cell: the fitted growth rate, tenfold "
+        "Curves above 0 digits are clipped. Arrows: length proportional to the wind speed; hills: schematic, "
+        "height growing as the square root of h, not to scale. Guide in the 40 m/s, 1 km cell: the fitted growth rate, tenfold "
         "per 1 to 3 h over the breaking pairs. The 57 m/s, 3 km case was not run. Same data as "
         "fig_s02_convergence.")
     save(fig, outdir, "fig_s02_convergence_plain", dict(inputs=[str(READINGS)], cells=side, caption=caption))
