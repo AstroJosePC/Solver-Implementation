@@ -39,6 +39,8 @@ Fields:
 - `planet`: Planet enum (Earth, Mars, Venus)
 - `enable_viscosity`: enable viscous diffusion
 - `enable_cooling`: enable Newtonian cooling
+- `diffusion_solver`: implicit diffusion method (:lu, :lu_reuse or :fft_tridiag)
+- `diffusion_dt_tol`: relative dt change that rebuilds the diffusion operators (0.01)
 - `tau_r_min`: peak Newtonian cooling timescale [s] (default 2500.0)
 - `z_cooling_peak`: altitude of maximum cooling [m] (default 70000.0)
 - `cooling_width`: vertical spread of cooling region [m] (default 25000.0)
@@ -81,6 +83,16 @@ Fields:
     # Physics toggles
     enable_viscosity::Bool = true
     enable_cooling::Bool = false
+
+    # Implicit diffusion method (src/diffusion.jl, DiffusionSolver). :lu = global sparse
+    # LU of the (nx*nz)^2 Crank-Nicolson operator, factorized from scratch whenever it
+    # is rebuilt (every record so far); :lu_reuse = the same matrices refactorized in
+    # place, keeping the symbolic analysis; :fft_tridiag = rfft in x and one tridiagonal
+    # solve in z per mode, the same discrete system to round-off. The operator is built
+    # with the step of its last rebuild and rebuilt when |dt - dt_ref|/dt exceeds
+    # diffusion_dt_tol; 0.01 is the rule of every record so far.
+    diffusion_solver::Symbol = :lu
+    diffusion_dt_tol::Float64 = 0.01
     
     # Altitude-dependent CO2 radiative damping parameters
     tau_r_min::Float64 = 2500.0       # [s] Peak damping timescale

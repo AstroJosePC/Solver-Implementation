@@ -71,6 +71,8 @@ function write_snapshot_nc(Q::Array{Float64,3}, grid::Grid2D, config::SimConfig,
                     ds.attrib["bottom_forcing"] = string(config.bottom_forcing)
                     ds.attrib["sponge_step"] = string(config.sponge_step)
                     ds.attrib["sweep_order"] = string(config.sweep_order)
+                    ds.attrib["diffusion_solver"] = string(config.diffusion_solver)
+                    ds.attrib["diffusion_dt_tol"] = config.diffusion_dt_tol
 
                     # Data variables
                     rho_var = defVar(ds, "rho", Float64, ("x", "z"),
