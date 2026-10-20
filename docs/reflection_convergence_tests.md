@@ -5019,3 +5019,289 @@ second statement failing, the F-b criterion failing, the F-c pre-collapse band, 
 row, H3 altered and earlier in all three cases, the H3 order in U40 and U57, the V3p row.
 Expectations failed: F-a `dz_L` in S15F1 and S15F2, the F-b size of -5 to -12 %, the F-b
 second statement holding, the F-c 6 to 9 h band, the H3 order in U20.
+
+
+## 16. Order of the dimensional and operator splitting (pre-registration)
+
+Written on 2026-10-19, before any run below was launched. Nothing registered in Sections 1
+to 15 is changed, and every `SimConfig` default stays as it was: `sweep_order = :xz`,
+`operator_split = :lie`, `final_snapshot = false`.
+
+### Why this section exists
+
+An outside review of the prequel blog post questioned its statement that the solver is
+second order in space and time. `euler_step!` runs the x-sweep over the full `dt` and then
+the z-sweep over the full `dt`, and the split sponge, the implicit viscosity and the cooling
+follow once. Each Richtmyer sweep is second order, but the sequence is Godunov (Lie)
+splitting, which is first order in time. Käppeli (2022, Sect. 2.2; `docs/Käppeli 2022 -
+Well-balanced methods for computational astrophysics/*.md`, line 241) states the result
+and gives Strang splitting, a half step, a full step and a half step, as the second-order
+form, "provided the individual solution operators possess an equivalent or higher order".
+Sutherland (2010, Fyris Alpha; `docs/Sutherland 2010 - .../*.md`, line 83) alternates the
+sweep order over pairs of steps, `x,y - y,x`, "akin to the second order Strang splitting".
+S14X1 and S14S4 (reversed order, flux change 0.05 % or less) bound the size of the
+splitting error but not its order.
+
+Code check made while writing this section: `x_sweep!` reads the periodic x ghosts, which
+only `apply_all_bcs!` at the start of the step refreshes. On the `:zx` path the x-sweep
+therefore reads x ghosts set before the z-sweep. S14X1 and S14S4 ran that path. It is kept
+as it was, because it is the record. The new paths refresh the x ghosts before every
+x-sweep that follows another sweep.
+
+### Code for Section 16
+
+Each new path sits behind a switch whose default is the earlier behaviour.
+- `SimConfig.sweep_order`: `:alternate` (`:xz` on even steps, `:zx` on odd ones) and
+  `:strang` (`x(dt/2) z(dt) x(dt/2)`), both with the x-ghost refresh (`refresh_x` in
+  `euler_step!`). The face forcing at `t + dt/2` already sits at the centre of the z-sweep
+  on both paths.
+- `SimConfig.operator_split = :strang`: the split sponge, the diffusion and the cooling run
+  over `dt/2` before the hyperbolic step, in reverse order, and over `dt/2` after it. The
+  density and pressure floors stay where they were, directly after the hyperbolic step.
+  The diffusion LU is built once for `dt/2` and reused on both sides.
+- `SimConfig.final_snapshot`: writes the state at `t_end` when it does not fall on
+  `output_interval`, so that runs at different `dt` are compared at the same time.
+- Driver (`sweep_arsia_mons_stage2.jl`): `alt=1` (tag `_alt`), `strang=1` (`_strang`),
+  `opstrang=1` (`_opS`), `final=1` (no tag).
+- Launcher: set `s16`. `check` adds 0.1 h of the S14V1a ridge on the default path against
+  its archive, and the Strang and alternating paths with `opstrang=1`, which must reach
+  `t_end`. `S14_ARCHIVE` points the launcher at the archive of the main checkout when it is
+  run from a worktree.
+- `scripts/analyze_splitting_order.py`: the readings below.
+
+Before this registration the default path was run for 0.3 h on the S14V1a arguments and
+reproduced the archived S14V1a snapshots bit for bit (15 of 15, 1 459 steps).
+
+### Zero-cost and short checks run before this registration
+
+A 0.05 h code test of the analysis (L and S at CFL 0.4, 0.2 and 0.1, scratch output, not a
+reading) gave the L - S difference over 12 to 30 km as 3.47e-4, 1.74e-4 and 8.69e-5 of the
+field, an order `q` of 1.00 at both halvings, with `MF(10.25)` differing by -0.175, -0.088
+and -0.044 %. In the same test the self-convergence of each scheme did not converge: the
+change between successive levels did not fall with `dt` (`p` of 0.44 to 0.46 filtered,
+-0.1 raw). The difference is concentrated between 2 and 12 km and grows upward as `dt`
+falls, which is the near-ground layer of Section 14 with decay length `dz^2/(2 c dt)`
+(0.74 km at CFL 0.4 and 5.9 km at CFL 0.05). Lax-Wendroff damps grid-scale modes in
+proportion to `nu dx^3`, which is `a dt dx^2`, so at a fixed grid that damping is first order
+in `dt` and vanishes as `dt` goes to 0. A pure `dt` self-convergence test of this scheme
+therefore cannot reach second order near the forced ground, whatever the splitting. The
+difference between two schemes at the same `dt` removes that term, and is the reading of
+record here.
+
+### Runs
+
+Common arguments `SO` = `linear sigma=50 h=0.03 hours=2 pbar=1 ramp=2 k0=0.005 lz=95
+bcface=1 final=1` (the S14V1a ridge, 2 h). Schemes: L (default), S (`strang=1 opstrang=1`),
+A (`alt=1 opstrang=1`), X (`strang=1`, Lie operators). Levels 1 to 4: CFL 0.4, 0.2, 0.1 and
+0.05, with `outint` 100, 200, 400 and 800. Run IDs `S16<scheme><level>`, sixteen runs, one
+batch, `julia -t 1`, `OPENBLAS_NUM_THREADS=1`. Directories under `~/MAGNUSP_runs`:
+`arsia_mons_linear2h_LX2000_sig50_K0_0.005_LZ95_pbarP_ramp2h_bcface<scheme tag><cfl tag>/run_U40.0_h0.03`.
+
+| level | CFL | `dt` [s] | steps | est. wall, L (S) |
+|---|---|---|---|---|
+| 1 | 0.4 | 0.74 | 9 700 | 8 (13) min |
+| 2 | 0.2 | 0.37 | 19 500 | 16 (26) min |
+| 3 | 0.1 | 0.185 | 39 000 | 31 (52) min |
+| 4 | 0.05 | 0.0925 | 78 000 | 62 (104) min |
+
+The estimates use 0.048 s per step (the bit-for-bit run, alone) and an assumed 1.6 times that
+for S. Sixteen processes add an expected 10 to 30 %, so the batch takes about 2.3 h.
+
+### Readings fixed before launch
+
+Metric of record: `w'` (w minus its x-mean), filtered in z by `[1, 2, 1]/4`, over 12 to 30 km
+and all x, at `t_end` = 2 h. `E_ab(l)` is the norm of the difference of schemes a and b at
+level l relative to b, and `q_ab = log2 E_ab(l)/E_ab(l+1)`.
+
+**16-a, order and size of the Lie splitting error (L against S).**
+- Prediction: `q_LS` between 0.8 and 1.2 at all three halvings (first order).
+- Prediction: `E_LS(1)` between 1e-4 and 3e-3, and `MF(10.25)` and `MF(20.25)` of L and S
+  differing by less than 0.3 % at CFL 0.4.
+- Reading: if the CFL 0.4 flux difference is below 0.5 %, the Lie error is smaller than
+  every term in the Section 11 budget (`dt` +0.09 %, `dz` 1.85 to 7.7 %), and the face-path
+  records stand as they are. If it is 0.5 % or more, every face-path flux quoted later
+  carries this row.
+
+**16-b, second order of the two symmetric paths (A against S).** Both are second order, so
+their difference should fall by 4 per halving.
+- Criterion: `q_AS` at least 1.6 at the two finer halvings. Met: both paths are second
+  order in their splitting. Not met: one of them is not, and neither is adopted until the
+  cause is found.
+- Expected: met, with `q_AS` between 1.7 and 2.3.
+
+**16-c, splitting of the operators (X against S).**
+- Prediction: `E_XS(1)` is below 0.1 of `E_LS(1)`. Below 30 km the molecular viscosity is
+  small, and the sponge in these runs is inline (`spsplit=0`), so Lie splitting of the
+  operators should cost little next to the sweeps.
+
+**16-d, self-convergence (reported, no criterion).** `p` of each scheme on 12 to 30 km and on
+2 to 8 km, raw and filtered, and the `MF` change per level.
+- Expected, low confidence: `p_L` near 1 on 12 to 30 km. `p_S` and `p_A` above `p_L` but
+  below 2, because the first-order Lax-Wendroff damping term stays. On 2 to 8 km, `p` at or
+  below 0 for every scheme (the ground layer).
+
+**16-e, cost.** The awake s per step of A and S relative to L at the same level.
+- Expected: A at most 1.15 and S at most 1.6.
+
+**Adoption rule** (a recommendation to the user, not a default change):
+- If 16-b is met, recommend `alt=1` for new runs: second order at the cost of L.
+- Add `opstrang=1` to that recommendation only if 16-c fails, or if 16-e shows its cost
+  below 1.1.
+- If 16-a's flux difference at CFL 0.4 is below 0.1 %, record that the change is formal and
+  that no earlier record needs a rerun.
+
+### Scoring command
+
+`python3 scripts/analyze_splitting_order.py --run L:1=<S16L1 dir> ... --run X:4=<S16X4 dir>
+--out output/analysis/s16/s16.json` (all sixteen runs), and the per-step cost from the run
+matrix and `S16.cost.tsv`.
+
+### Launch record
+
+The pre-registration above was committed on its own on branch `dev/strang-splitting`
+(`6329b98`, on top of the code commit `3743318`) and tagged `prereg/s16-splitting-order`.
+The same commit is the launch commit, tagged `run/s16-20261019`. The tree was clean at launch.
+
+`check` passed before launch: every earlier record reproduced with a difference of 0.0, the
+0.1 h S14V1a ridge on the default path matched its archive with a difference of 0.0, and
+the Strang and alternating paths with `opstrang=1` both logged `t=360/360 s ... OK`.
+`launch s16` at 2026-10-19 15:58:48 from the copy `~/MAGNUSP_runs/logs/S16.launcher.sh`
+(launcher hash `50d00d5401d5732f`, driver and `src/` hash `78ccdc0be2dc8004`), all sixteen
+cases, concurrency 16, with `S14_REPO` set to the worktree and `S14_ARCHIVE` to the archive
+of the main checkout. The launch stamp prints `ublend=8 km`. That is cosmetic: `s16` is not
+in the launcher's list of sets that take `ublend`, and no `ublend` argument reached any run
+(the `command` column of `docs/run_matrix.csv`). `monitor s16` held `caffeinate` and wrote
+`~/MAGNUSP_runs/logs/S16.cost.tsv`. All sixteen exited 0 at `t = 7200/7200 s`, the last
+(S16S4) at 17:59:34. Run outputs are under `~/MAGNUSP_runs`. The scoring output is
+`~/MAGNUSP_runs/analysis/s16/s16.json`, copied to `output/analysis/s16/` in the main checkout.
+
+### Results
+
+Scored with the command above on 2026-10-19. `t_end` agrees to 1e-6 s across all sixteen runs.
+
+| pair | E at CFL 0.4 | 0.2 | 0.1 | 0.05 | q per halving | MF(10.25) diff at CFL 0.4 | MF(20.25) |
+|---|---|---|---|---|---|---|---|
+| L - S | 4.22e-4 | 2.15e-4 | 1.11e-4 | 5.55e-5 | 0.97, 0.96, 1.00 | -0.011 % | -0.010 % |
+| L - A | 5.01e-4 | 2.27e-4 | 1.10e-4 | 5.60e-5 | 1.14, 1.04, 0.97 | +0.018 % | +0.018 % |
+| A - S | 2.67e-4 | 7.75e-5 | 2.44e-5 | 1.33e-5 | 1.78, 1.67, 0.87 | -0.030 % | -0.028 % |
+| X - S | 6.2e-10 | 1.2e-9 | 3.1e-9 | 6.6e-9 | (round-off) | 0.000 % | 0.000 % |
+
+**16-a, met.** `q_LS` is 0.97, 0.96 and 1.00, inside 0.8 to 1.2: the default path is first
+order in its splitting. `E_LS(1)` = 4.2e-4 is inside 1e-4 to 3e-3, and the flux of L and S
+differs by 0.011 % at 10.25 km and 0.010 % at 20.25 km at CFL 0.4, below the 0.3 % predicted.
+This is below the 0.1 % line of the adoption rule: the change of splitting is formal for the
+face-path records, and no earlier record needs a rerun. The Lie error at CFL 0.4 is about a
+tenth of the Section 11 `dt` term (+0.09 %) and more than a hundred times smaller than the
+`dz` term.
+
+**16-b, not met.** `q_AS` is 1.67 and 0.87 at the two finer halvings, against a criterion of
+at least 1.6 at both. Under the rule as written, neither symmetric path is adopted.
+
+Post-hoc, not a reading of record (`scripts/s16_posthoc.py`):
+- **Step parity.** The step counts at `t_end` are odd at levels 1 to 3 (9 725, 19 449,
+  38 897) and even at level 4 (77 794). The alternating path therefore ends partway through an
+  `xz`/`zx` pair at three levels but not at the fourth.
+- **Even-step check.** The snapshots common to all four levels fall on even step counts, and
+  their times agree between schemes to 4e-5 s. At these snapshots (t = 1 777, 3 555, 5 332,
+  7 108 and 7 182 s), `q_AS` is about 1.6, 1.4 and 1.2 at every time, sliding toward 1, and
+  `q_LS` stays at 1.00. Parity explains the jump at `t_end` but not the slide.
+- **Two-term fit.** At t = 7 182 s,
+  `E_AS = 1.13e-4 (dt/dt_1) + 1.63e-4 (dt/dt_1)^2` fits all four levels to within 6 %: a
+  second-order part, plus a first-order part of about a quarter of `E_LS(1)`.
+- **Cause, identified post-hoc.** The S path runs each x-sweep as two steps of `dt/2`, while
+  A and L run it as one step of `dt`. Composing two half Lax-Wendroff steps is not one full
+  step: the dispersive term differs by `nu^2` (second order) and the damping term by `nu`.
+  At a fixed grid, the second is first order in `dt`.
+- **1-D check.** One-dimensional Richtmyer advection (`lw1d`, `LW(dt/2)^2` against `LW(dt)`,
+  `nu` = 0.4 down to 0.025) gives `q` = 1.85, 1.61, 1.29 and 1.10. That is the same slide from
+  second to first order seen in A - S. The A - S difference therefore measures the
+  Courant-number dependence of the x-sweep damping as well as the splitting order. The
+  criterion confounded the two. This is a fault in the design of the test, not evidence that
+  either path is wrong.
+- **Direct test, not run.** A test of the splitting order of A alone would compare it with the
+  same path in the opposite phase (`zx` first). Both take full steps in each sweep, so the
+  damping term cancels and only second-order differences remain.
+
+**16-c, met.** `E_XS` is about 1e-9 at every level and grows with the step count, which is
+round-off. Splitting the operators (sponge inline, molecular viscosity and cooling small
+below 30 km) changes nothing at the reading heights.
+
+**16-d, reported.** Self-convergence on 12 to 30 km, filtered: `p_L` = 1.26 and 0.66, `p_S` =
+1.24 and 0.36, `p_A` = 1.48 and 0.80. Only A has `p` above L, at both halvings. On 2 to 8 km,
+`p` lies between -0.24 and 0.38 for every scheme. On the raw `w'`, `p` is -3.6 to -4.5: the
+unfiltered difference grows with every halving. The `mfprof` check places this growth.
+- **2 dz part of `w'`.** At 10.25 km it is 4.0e-5, 5.3e-5, 5.2e-4 and 2.9e-3 m/s at CFL 0.4,
+  0.2, 0.1 and 0.05. This is the near-ground layer of Section 14 rising with its decay
+  length `dz^2/(2 c dt)`.
+- **Raw flux.** The raw `rho_bar <u' w'>` at 10.25 km changes by +0.09 %, +1.67 % and
+  +6.79 % per halving, and by up to -22 % at 3.75 km.
+- **Filtered flux.** With `u'` and `w'` both filtered by `[1, 2, 1]/4`, the flux changes by
+  0.03 % or less above 8 km at every halving, and by 0.34, 0.06 and 0.02 % at 0.75 km.
+
+The resolved wave is converged in `dt`. The raw flux below about 15 km at CFL 0.1 or less is
+not, because Lax-Wendroff stops damping the 2 dz mode as `nu` falls. The records run at
+CFL 0.4, where the raw and filtered flux at 10.25 km agree in their `dt` change (0.09 % and
+0.03 %). A raw flux from a run below CFL 0.2 should be filtered before it is quoted.
+
+**16-e, both predictions failed.** Mean s per step from `docs/run_matrix.csv`, relative to L at
+the same level. Concurrency fell from 16 as the short runs ended, and the four schemes of a
+level started together.
+
+| level | L [s/step] | X / L | S / L | A / L |
+|---|---|---|---|---|
+| 1 | 0.0563 | 1.04 | 1.93 | 1.82 |
+| 2 | 0.0554 | 1.09 | 1.84 | 1.81 |
+| 3 | 0.0540 | 1.03 | 1.80 | 1.78 |
+| 4 | 0.0517 | 1.03 | 1.80 | 1.77 |
+
+A costs 1.77 to 1.82 against at most 1.15 predicted, and S costs 1.80 to 1.93 against at most
+1.6. The extra cost is the operator half steps, not the sweeps: X (Strang sweeps, Lie
+operators) costs 1.03 to 1.09. Running the split operators twice per step adds about 0.8 of
+an L step, so the diffusion step is most of the per-step cost of this case. A path that
+alternates its sweeps without `opstrang=1` was not run, and should cost about what L costs.
+
+**Adoption.**
+- No default changes, and no earlier record needs a rerun (16-a).
+- `opstrang=1` is not recommended: 16-c shows it changes nothing, at about 1.8 times the cost.
+- `alt=1` on its own is not recommended under the registered rule, because 16-b failed. The
+  cause is now identified, and `alt=1` stays available behind its switch.
+- Adopting `alt=1` for new runs needs the phase test above. On this case it would change the
+  flux by about 0.02 %.
+
+### Figures added 2026-10-19 (descriptive)
+
+Not readings of record. Drawn by `scripts/plot_splitting_order.py all` (commit `e532bc3`) from
+NPZ caches in `output/analysis/s16/` (`S16_lsdiff_xz.npz`, `S16_order_courant.npz`,
+`S16_ground2dz_xz.npz`), written by its `extract` stage from runs S16{L,S,A}{1..4} at
+`t_end` = 7 200 s. Style is `scripts/magnusp.mplstyle`. Figures, PDFs and sidecars are in
+`docs/figures/` of the main checkout, and the design notes are in
+`docs/splitting_order_design_philosophy.md`. All runs use the face path (`bcface=1`), dz =
+500 m and dx = 4 km. The extract stage reproduces `E_LS` from `s16.json` to every printed
+digit, the t_end `q_AS` (1.78, 1.67, 0.87), the `lw1d` orders (1.85, 1.61, 1.29, 1.10) and the
+`mfprof` 2 dz amplitudes at 10.25 km (4.0e-5 to 2.9e-3 m/s).
+
+- `fig_s16_ls_difference_fields`: filtered `w'_L - w'_S` times `2^(l-1)` at CFL 0.4, 0.2, 0.1
+  and 0.05 on one colour scale (x within 400 km of the ridge, z 0 to 35 km). The four panels
+  are the same picture to the eye, which is the 16-a reading (`q_LS` 0.97, 0.96, 1.00) shown
+  as a field. The difference lies along the flanks of the wave crests, which is consistent
+  with a small phase shift of the resolved wave rather than a separate structure.
+- `fig_s16_order_vs_courant`: `q` per halving against the measured x-sweep Courant number
+  `nu_x = max(|u| + c) dt/dx`, which is exactly CFL/8 here (0.050, 0.025, 0.0125, 0.0063),
+  because `compute_adaptive_dt` limits `dt` with `min(dx, dz)` = dz. The w' field is carried
+  in x at U, at `U dt/dx` = 0.0075 to 0.0009. `q_LS` stays at 1.00 at every even-step snapshot.
+  `q_AS` at the even-step snapshots (1.56, 1.36, 1.20 at t = 7 182 s) follows the relative
+  least-squares fit `E_AS = 1.10e-4 r + 1.80e-4 r^2` (residuals below 1 %; the Results above
+  quote 1.13e-4 and 1.63e-4 from a fit within 6 %). The 1-D test, re-run on the ridge's
+  `dh/dx` profile (sigma = 12.5 cells) over `nu` = 0.4 to 0.0016, gives 1.91 down to 1.00
+  and is already at 1.15 to 1.00 where the 2-D points lie. So at matched Courant number the
+  1-D half-step mechanism accounts for the first-order limit of A - S, but not for where A - S
+  leaves second order. That point is set by the ratio a/b, and the second-order part b
+  includes the splitting difference between A and S. The 2-D and 1-D curves are drawn apart
+  on purpose. This qualifies the "same slide" wording of the 1-D check above: the slide has
+  the same form, but it is not at the same Courant number.
+- `fig_s16_ground_2dz_layer`: `w' - [1, 2, 1] w'/4` for the L scheme at CFL 0.4 and 0.05 on
+  one colour scale (z 0 to 20 km). At CFL 0.4 the 2 dz part is confined below about 2 km. At
+  CFL 0.05 it fills the column above 10 km, with alternating sign over the ridge and in the
+  lee. The decay length `dz^2/(2 c dt)` uses the measured mean sound speed of the lowest row,
+  216.9 m/s, and gives 0.78, 1.56, 3.11 and 6.23 km. The 0.74 and 5.9 km quoted earlier in this
+  section correspond to a sound speed about 5 % higher.

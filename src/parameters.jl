@@ -49,7 +49,10 @@ Fields:
 - `pbar_mode`: background pressure in the vertical flux (:pressure or :total)
 - `bottom_forcing`: path of the imposed ground w (:ghost or :face)
 - `sponge_step`: damping layer inside the Lax-Wendroff step (:inline) or split (:split)
-- `sweep_order`: dimensional splitting order, x then z (:xz) or z then x (:zx)
+- `sweep_order`: dimensional splitting order, x then z (:xz), z then x (:zx), alternating
+  per step (:alternate) or symmetric x(dt/2) z(dt) x(dt/2) (:strang)
+- `operator_split`: split sponge, diffusion and cooling after the step (:lie) or as
+  half steps on both sides of it (:strang)
 - `face_probe`: steps between ground-face probe records (0 = off)
 """
 @kwdef struct SimConfig
@@ -125,9 +128,18 @@ Fields:
     # then z-sweep; :zx = the reverse. face_probe > 0 records, every that many steps,
     # the ground-face w and p' of the z-predictor (src/euler.jl, FaceProbe) to
     # face_probe.nc in the run directory, without changing the solution.
+    # Second-order splitting (docs/reflection_convergence_tests.md, Section 16):
+    # sweep_order :alternate = :xz on even steps and :zx on odd ones, :strang =
+    # x(dt/2) z(dt) x(dt/2); both refresh the x ghosts before every x-sweep that follows
+    # another sweep. operator_split :lie = split sponge, diffusion and cooling once
+    # after the hyperbolic step (every record so far); :strang = each over dt/2 before
+    # it, in reverse order, and dt/2 after it.
     sponge_step::Symbol = :inline
     sweep_order::Symbol = :xz
+    operator_split::Symbol = :lie
     face_probe::Int = 0
+    # Also write the state at t_end when it does not fall on output_interval
+    final_snapshot::Bool = false
 end
 
 """

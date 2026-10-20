@@ -81,10 +81,19 @@ function run_simulation(config::SimConfig;
     # the LW step and relaxes exactly after it.
     config.sponge_step in (:inline, :split) ||
         error("sponge_step must be :inline or :split, got :$(config.sponge_step)")
-    config.sweep_order in (:xz, :zx) ||
-        error("sweep_order must be :xz or :zx, got :$(config.sweep_order)")
+    config.sweep_order in (:xz, :zx, :alternate, :strang) ||
+        error("sweep_order must be :xz, :zx, :alternate or :strang, got :$(config.sweep_order)")
+    config.operator_split in (:lie, :strang) ||
+        error("operator_split must be :lie or :strang, got :$(config.operator_split)")
     sponge_split = config.sponge_step === :split
     K_lw = sponge_split ? zero(sponge_layer.K) : sponge_layer.K
+    # Second-order splitting (docs/reflection_convergence_tests.md, Section 16): the
+    # x ghosts are refreshed before every x-sweep that follows another sweep, and the
+    # split operators run over dt/2 on each side of the hyperbolic step
+    refresh_x = config.sweep_order in (:alternate, :strang) ?
+        (bc_x_type == :outflow ? (q -> apply_outflow_x!(q, Q_bar, grid)) :
+                                 (q -> apply_periodic_x!(q, grid))) : nothing
+    ops_strang = config.operator_split === :strang
     probe = config.face_probe > 0 ? FaceProbe(grid) : nothing
     probe_t = Float64[]
     probe_rows = Dict(f => Vector{Vector{Float64}}()
@@ -160,6 +169,15 @@ function run_simulation(config::SimConfig;
             break
         end
 
+        # 0. Leading half of the symmetric split operators (operator_split = :strang),
+        #    in the reverse of their order after the step
+        dt_ops = ops_strang ? 0.5 * dt : dt
+        if ops_strang
+            config.enable_cooling && newtonian_cooling_step!(Q, grid, config, atm, dt_ops)
+            config.enable_viscosity && diffusion_step!(Q, Q_bar, grid, dt_ops, config, diff_solver)
+            sponge_split && apply_sponge_exp!(Q, Q_bar, sponge_layer, dt_ops)
+        end
+
         # 1. Apply boundary conditions
         apply_all_bcs!(Q, Q_bar, grid, config.gamma;
                        bc_type=bc_type, bc_x_type=bc_x_type,
@@ -188,10 +206,12 @@ function run_simulation(config::SimConfig;
 
         # 3. Euler step (hyperbolic) — sponge damping is integrated inside as source term,
         #    or applied as an exact split relaxation after it (sponge_step = :split)
+        order = config.sweep_order === :alternate ?
+            (iseven(step_count) ? :xz : :zx) : config.sweep_order
         euler_step!(Q, Q_bar, Q_half_x, Q_half_z, grid, dt, config.gamma, config.g,
                     K_lw; pbar_mode=config.pbar_mode, w_face=w_face,
-                    order=config.sweep_order, probe=do_probe ? probe : nothing)
-        sponge_split && apply_sponge_exp!(Q, Q_bar, sponge_layer, dt)
+                    order=order, probe=do_probe ? probe : nothing, refresh_x=refresh_x)
+        sponge_split && apply_sponge_exp!(Q, Q_bar, sponge_layer, dt_ops)
         if do_probe
             push!(probe_t, t)
             for (f, v) in probe_rows
@@ -228,12 +248,12 @@ function run_simulation(config::SimConfig;
 
         # 4. Diffusion step (implicit, if enabled)
         if config.enable_viscosity
-            diffusion_step!(Q, Q_bar, grid, dt, config, diff_solver)
+            diffusion_step!(Q, Q_bar, grid, dt_ops, config, diff_solver)
         end
 
         # 6. Newtonian cooling (if enabled)
         if config.enable_cooling
-            newtonian_cooling_step!(Q, grid, config, atm, dt)
+            newtonian_cooling_step!(Q, grid, config, atm, dt_ops)
         end
 
         # Advance time
@@ -289,6 +309,9 @@ function run_simulation(config::SimConfig;
     end
 
     probe === nothing || write_face_probe_nc(outdir, grid, config, probe_t, probe_rows)
+    # The state at t_end itself, for comparisons at a common time (SimConfig.final_snapshot)
+    config.final_snapshot && step_count % config.output_interval != 0 &&
+        write_snapshot_nc(Q, grid, config, t, step_count, outdir)
 
     wall_end = time()
     duration = wall_end - wall_start
