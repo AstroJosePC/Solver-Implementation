@@ -671,6 +671,19 @@
         :lu. (d) dev/blog-ghost-cell-figures left unmerged by decision. OPEN: launch and
         score d2 (load average was about 17 to 18 on 2026-10-20; Section 2 asks for below
         about 7 or the load recorded in d2.start).
+        Update 2026-10-20 (set d2 scored, Section 2 Results, 78a4b65): S02F9 dropped before
+        launch (note df52f0e); S02F1 to S02F8 launched 07:03:44 (tag run/d2-20261020,
+        concurrency 8, load 5.98), all exit 0, last end 08:01:41; archived to output/d2.
+        D-0 met, D-1 row 1 met in all three pairs, D-2 row 1 met in all five; H3 not
+        supported. Cost 0.018 s per step at dz 500 m and 0.035 s at dz 250 m, breaking or
+        not; twin/off-member s per step 0.11 to 0.19. Decision: new production sets pass
+        diffsolver=fft with bcface=1 and pbar=1; SimConfig default stays :lu. Launcher
+        front end: justfile (a61c795) queues sets in the MarsAtmos Task Spooler queue
+        (~/.dsmc_ts.sock). OPEN: (e) no full-run pair covers dz 250 m runs that overturn
+        (S02F9 or an equivalent needs its own registration); (f) d2.cost.tsv P_use column
+        reads 0.00 (macmon field parsing in the monitor); (g) merge dev/fft-production into
+        main after review; the rule for production launchers is not yet written into
+        CLAUDE.md.
     (g) Which N does each downstream quantity use? Opened 2026-09-01. N_REF = 0.018 s^-1 is
         the near-surface inversion value (N = 0.01763 at z = 0.25 km), not a lower-atmosphere
         mean; over 10-55 km in this column N is 0.0078-0.0097 with a mean of 0.00849, a
