@@ -13,7 +13,10 @@ Cartography"). Reads saved JSON, TSV and run logs only; no snapshot is opened.
   cost          fig_s02_cost: wall time per step against simulated time, and per-pair ratios
   all           extract (if missing) and the three figures
 
-    ~/.venvs/magnusp/bin/python scripts/plot_diffusion_solver.py all [--outdir docs/figures]
+  --plain       the same plates with plain-language labels and a headline band, written as
+                fig_s02_*_plain; the technical plates are left as they are
+
+    ~/.venvs/magnusp/bin/python scripts/plot_diffusion_solver.py all [--outdir docs/figures] [--plain]
 
 Inputs: output/analysis/s02/readings_d2.json (series t_h is the off member's snapshot time; pairs
 are matched by step), output/d2/logs/{d2.cost.tsv,d2.start,S02F*.log},
@@ -237,8 +240,35 @@ def thermo_max(s):
     return np.max([s[k] for k in ("rel_rho", "rel_u", "rel_P", "rel_T")], axis=0)
 
 
-def fig_convergence(plt, outdir):
+TWIN_OF = {p[1]: p[0] for p in PAIRS}
+
+
+def plain_name(twin, short=False):
+    """Plain label of a pair: wind speed, hill height, and the fine grid of S02F1."""
+    _, _, dz, U, h, _ = next(p for p in PAIRS if p[0] == twin)
+    return f"{U} m/s{'' if short else ' wind'}, {h:g} km hill" + (", fine grid" if dz == 250 else "")
+
+
+def headline(fig, lines, extra_pt=0.0):
+    """Reserve a band above the panels and set the plain lines in it, as (text, size, color, bold).
+    The figure grows by the band; returns the figure-fraction y just below the last line."""
+    step = lambda t, s: 1.32 * s * (t.count("\n") + 1)
+    pt = 4 + sum(step(t, s) for t, s, *_ in lines) + extra_pt + 4
+    H = fig.get_figheight() + pt / 72
+    fig.set_size_inches(fig.get_figwidth(), H)
+    fig.get_layout_engine().set(rect=(0, 0, 1, 1 - pt / 72 / H))
+    y = 1 - 4 / 72 / H
+    for t, s, c, bold in lines:
+        fig.text(0.008, y, t, ha="left", va="top", fontsize=s, color=c, linespacing=1.15,
+                 fontweight="bold" if bold else "normal")
+        y -= step(t, s) / 72 / H
+    return y
+
+
+def fig_convergence(plt, outdir, plain=False):
     from matplotlib.ticker import FixedLocator, LogFormatterMathtext, NullLocator
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
     R = readings()
     fig, axes = plt.subplots(2, 4, figsize=(7.0, 3.95), sharex=True, sharey=True)
     ylo, yhi = 1e-18, 1e5
@@ -257,9 +287,14 @@ def fig_convergence(plt, outdir):
         ax.axvspan(0, RAMP_H, color=SAND, lw=0, zorder=0)
         tb = tc if tc is not None else t[-1]
         ax.hlines([BAND_THERMO, bw], 0, tb, color=MUTED, lw=0.6, zorder=1)
+        if plain:
+            ax.axhline(1.0, color=GRID, lw=0.6, zorder=0)
         if tc is None:
             ax.plot(t, w, color=wt, lw=0.6, zorder=2)
             ax.plot(t, th, color=COBALT, lw=1.0, zorder=3)
+            if plain:
+                ax.text(RAMP_H + 0.45, 10 ** -17.55, "waves never break", color=SLATE, fontsize=6.8,
+                        ha="left", va="bottom")
         else:
             j = int(np.searchsorted(t, tc, side="right"))
             ax.plot(t[:j], w[:j], color=wt, lw=0.6, zorder=2)
@@ -267,12 +302,15 @@ def fig_convergence(plt, outdir):
             ax.plot(t[:j], th[:j], color=COBALT, lw=1.0, zorder=3)
             ax.plot(t[j - 1:], th[j - 1:], color=EMBER, lw=1.0, zorder=3)
             ax.axvline(tc, color=OCHRE, lw=0.7, zorder=1.5)
-            ax.text(tc + 0.45, 10 ** -17.55, rf"$t_c = {tc:.2f}$ h", color=OCHRE, fontsize=7,
-                    ha="left", va="bottom")
+            ax.text(tc + 0.45, 10 ** -17.55, f"breaks at {tc:.1f} h" if plain else rf"$t_c = {tc:.2f}$ h",
+                    color=OCHRE, fontsize=7, ha="left", va="bottom")
             g = p.get("growth_fit") or {}
             if g.get("efold_h"):
-                ax.text(23.6, 10 ** -17.55, rf"$\tau_e = {g['efold_h']:.2f}$ h", color=EMBER,
-                        fontsize=7, ha="right", va="bottom")
+                # plain: the e-folding time as the time to grow tenfold, ln 10 tau_e
+                ax.text(23.6, 10 ** (-15.3 if plain else -17.55),
+                        f"×10 every {np.log(10) * g['efold_h']:.1f} h" if plain
+                        else rf"$\tau_e = {g['efold_h']:.2f}$ h",
+                        color=EMBER, fontsize=7, ha="right", va="bottom")
         # every 1.5 h a small open marker on r_w, so the two series differ in grayscale too
         for tm in np.arange(0.75, t[-1], 1.5):
             k = int(np.argmin(abs(t - tm)))
@@ -283,32 +321,58 @@ def fig_convergence(plt, outdir):
         ax.annotate(f"({letter})", (0, 1), xycoords="axes fraction", xytext=(0, 4),
                     textcoords="offset points", ha="left", va="bottom", fontsize=7.5, color=INK,
                     fontweight="bold")
-        ax.annotate(f"{twin} / {off}{extra}", (0, 1), xycoords="axes fraction", xytext=(13, 4),
-                    textcoords="offset points", ha="left", va="bottom", fontsize=7.5, color=INK)
+        ax.annotate(plain_name(twin) if plain else f"{twin} / {off}{extra}", (0, 1),
+                    xycoords="axes fraction", xytext=(13, 4), textcoords="offset points", ha="left",
+                    va="bottom", fontsize=7 if plain else 7.5, color=INK)
         side[twin] = dict(off=off, t_c_h=tc, band_thermo=BAND_THERMO, band_w=bw,
                           max_thermo_to_tc=float(th[t <= (tc if tc else 1e9)].max()),
                           max_w_to_tc=float(w[t <= (tc if tc else 1e9)].max()),
                           efold_h=(p.get("growth_fit") or {}).get("efold_h"),
                           t_last_shared_h=p["t_last_shared_h"], n_shared=p["n_shared"])
-    ax = axes.flat[0]
-    # key in the empty right half of (a) (S02F1 ends at 9 h)
-    kx, ky, dy = 0.43, 0.92, 0.085
-    items = [(COBALT, 1.0, None, r"$\max(r_\rho, r_u, r_P, r_T)$"),
-             (wt, 0.6, "o", r"$r_w$"),
-             (EMBER, 1.0, None, r"after $t_c$"),
-             (MUTED, 0.6, None, r"band, to $t_c$")]
-    for n, (c, lw, mk, lab) in enumerate(items):
-        y = ky - n * dy
-        ax.plot([kx, kx + 0.07], [y, y], transform=ax.transAxes, color=c, lw=lw, clip_on=False)
-        if mk:
-            ax.plot([kx + 0.035], [y], transform=ax.transAxes, marker=mk, ms=2.1, mfc=GROUND,
-                    mec=c, mew=0.55, clip_on=False)
-        ax.text(kx + 0.10, y, lab, transform=ax.transAxes, color=SLATE, fontsize=6.8, ha="left",
-                va="center")
-    y = ky - len(items) * dy
-    ax.add_patch(plt.Rectangle((kx, y - 0.025), 0.07, 0.05, transform=ax.transAxes, color=SAND, lw=0))
-    ax.text(kx + 0.10, y, r"ramp, $0$ to $2$ h", transform=ax.transAxes, color=SLATE,
-            fontsize=6.8, ha="left", va="center")
+    if plain:
+        ax = axes.flat[1]
+        ax.text(23.6, 10 ** -14.3, "solvers agree to ~12 digits", color=COBALT, fontsize=6.8,
+                ha="right", va="center")
+        ax.text(23.6, 3.0, "1 = completely different", color=SLATE, fontsize=6.8, ha="right",
+                va="bottom")
+        tens = [np.log(10) * R[p[0]]["growth_fit"]["efold_h"] for p in PAIRS
+                if (R[p[0]].get("growth_fit") or {}).get("efold_h")]
+        y = headline(fig, [
+            ("Before the waves break, the new solver gives the same answer as the old one to about 12 digits.",
+             9.5, INK, True),
+            (f"After the waves break (orange line), tiny rounding differences grow tenfold every {min(tens):.1f} "
+             f"to {max(tens):.1f} h until the two runs are unrelated,\nthe butterfly effect of overturning flow. "
+             "Any rounding change should do the same, but no control pair of two old-solver runs has shown it yet.",
+             7.5, SLATE, False)], extra_pt=24)
+        hs = [Line2D([], [], color=COBALT, lw=1.0), Line2D([], [], color=wt, lw=0.6, marker="o", ms=2.1,
+                                                         mfc=GROUND, mew=0.55),
+              Line2D([], [], color=EMBER, lw=1.0), Line2D([], [], color=OCHRE, lw=0.7),
+              Line2D([], [], color=MUTED, lw=0.6), Patch(color=SAND, lw=0)]
+        labs = ["density, pressure, temperature, horizontal wind (largest)", "vertical wind",
+                "after the waves first break", "first breaking", "pass limit (checked up to breaking)",
+                "forcing switching on, 0 to 2 h"]
+        fig.legend(hs, labs, loc="upper left", bbox_to_anchor=(0.004, y), ncol=3, frameon=False,
+                   fontsize=6.8, handlelength=2.0, columnspacing=1.6, labelcolor=SLATE)
+    else:
+        ax = axes.flat[0]
+        # key in the empty right half of (a) (S02F1 ends at 9 h)
+        kx, ky, dy = 0.43, 0.92, 0.085
+        items = [(COBALT, 1.0, None, r"$\max(r_\rho, r_u, r_P, r_T)$"),
+                 (wt, 0.6, "o", r"$r_w$"),
+                 (EMBER, 1.0, None, r"after $t_c$"),
+                 (MUTED, 0.6, None, r"band, to $t_c$")]
+        for n, (c, lw, mk, lab) in enumerate(items):
+            y = ky - n * dy
+            ax.plot([kx, kx + 0.07], [y, y], transform=ax.transAxes, color=c, lw=lw, clip_on=False)
+            if mk:
+                ax.plot([kx + 0.035], [y], transform=ax.transAxes, marker=mk, ms=2.1, mfc=GROUND,
+                        mec=c, mew=0.55, clip_on=False)
+            ax.text(kx + 0.10, y, lab, transform=ax.transAxes, color=SLATE, fontsize=6.8, ha="left",
+                    va="center")
+        y = ky - len(items) * dy
+        ax.add_patch(plt.Rectangle((kx, y - 0.025), 0.07, 0.05, transform=ax.transAxes, color=SAND, lw=0))
+        ax.text(kx + 0.10, y, r"ramp, $0$ to $2$ h", transform=ax.transAxes, color=SLATE,
+                fontsize=6.8, ha="left", va="center")
     for a in axes.flat:
         a.set_yscale("log")
         a.set_ylim(ylo, yhi)
@@ -317,8 +381,9 @@ def fig_convergence(plt, outdir):
         a.yaxis.set_major_locator(FixedLocator([1e-16, 1e-12, 1e-8, 1e-4, 1e0, 1e4]))
         a.yaxis.set_major_formatter(LogFormatterMathtext())
         a.yaxis.set_minor_locator(NullLocator())
-    fig.supxlabel(r"simulated time $t$ [h]", fontsize=8.5, color=INK)
-    fig.supylabel(r"relative difference $r_f$ [$-$]", fontsize=8.5, color=INK)
+    fig.supxlabel("simulated time [h]" if plain else r"simulated time $t$ [h]", fontsize=8.5, color=INK)
+    fig.supylabel("difference, new against old solver (relative)" if plain
+                  else r"relative difference $r_f$ [$-$]", fontsize=8.5, color=INK)
     caption = (
         "Relative difference r_f = max|f_twin - f_off| / max|f_off| over all cells at each shared "
         "snapshot (pairs matched by step; t is the off member's snapshot time) between the "
@@ -331,7 +396,7 @@ def fig_convergence(plt, outdir):
         "1e-3 (or the last shared snapshot). Face path (bcface=1), pbar=1, CFL 0.4, dz 500 m except "
         "S02F1 (250 m, 9 h). Shaded: forcing ramp. S02F5 ends at 15.35 h (twin) against 23.81 h (S15F1); "
         "its last shared snapshots compare the two runs at equal step, not equal time.")
-    save(fig, outdir, "fig_s02_convergence", dict(
+    save(fig, outdir, "fig_s02_convergence" + ("_plain" if plain else ""), dict(plain_labels=plain,
         inputs=[str(READINGS)], runs=[p[0] for p in PAIRS] + [p[1] for p in PAIRS],
         windows="whole record; bands judged at t <= t_c", pairs_detail=side,
         y_limits=[ylo, yhi], caption=caption))
@@ -343,7 +408,7 @@ def rel_range(run):
     return (hi - lo) / run["MF_30.25_uPa"]
 
 
-def fig_observables(plt, outdir):
+def fig_observables(plt, outdir, plain=False):
     from matplotlib.ticker import FixedLocator, LogFormatterMathtext, NullLocator
     R = readings()
     MF = R["MF"]
@@ -352,7 +417,7 @@ def fig_observables(plt, outdir):
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(7.0, 2.95), sharey=True,
                                  gridspec_kw=dict(width_ratios=[1.0, 1.0]))
     rows = {p[0]: i for i, p in enumerate(PAIRS)}
-    ylab = [f"{p[0]} / {p[1]}" for p in PAIRS]
+    ylab = [plain_name(p[0]) if plain else f"{p[0]} / {p[1]}" for p in PAIRS]
     # (a) window-mean MF(30.25) changes
     wins = [("mf_F1_6_9", "S02F1", "o"), ("mf_F2_6_9", "S02F2", "o"), ("mf_F2_18_24", "S02F2", "D"),
             ("mf_F3_6_9", "S02F3", "o"), ("mf_F3_18_24", "S02F3", "D"),
@@ -375,26 +440,35 @@ def fig_observables(plt, outdir):
                            relative_hourly_range_off=rr, after_t_c=after,
                            MF30_uPa_off=m["runs"][off]["MF_30.25_uPa"], MF30_uPa_twin=m["runs"][twin]["MF_30.25_uPa"])
     for twin in ("S02F7", "S02F8"):
-        a1.text(2e-13, rows[twin], r"no flux quoted ($h$ = 3 km)", color=SLATE, fontsize=6.8,
-                ha="left", va="center")
+        a1.text(2e-13, rows[twin], "not measured (3 km hill)" if plain else r"no flux quoted ($h$ = 3 km)",
+                color=SLATE, fontsize=6.8, ha="left", va="center")
     a1.vlines(BAND_MF, -0.95, 2.45, color=MUTED, lw=0.6, zorder=0)
-    a1.text(BAND_MF * 1.35, -0.88, r"band $10^{-7}$ (D-1)", color=SLATE, fontsize=6.8, ha="left",
-            va="center")
+    a1.text(BAND_MF * 1.35, -0.88, r"pass limit $10^{-7}$ (runs that do not break)" if plain
+            else r"band $10^{-7}$ (D-1)", color=SLATE, fontsize=6.8, ha="left", va="center")
     # marker key for windows, in the empty right part of the h = 3 km rows
-    for n, (mk, lab) in enumerate((("o", "window 6 to 9 h"), ("D", "window 18 to 24 h"),
-                                   ("s", "3 h before collapse"))):
-        yy = 6.08 + 0.5 * n
+    keys = ((("o", "average over 6 to 9 h"), ("D", "average over 18 to 24 h"),
+             ("s", "last 3 h before the run stops")) if plain else
+            (("o", "window 6 to 9 h"), ("D", "window 18 to 24 h"), ("s", "3 h before collapse")))
+    y0 = 5.6 if plain else 6.08
+    for n, (mk, lab) in enumerate(keys):
+        yy = y0 + 0.5 * n
         a1.plot(3e-5, yy, ls="none", marker=mk, ms=3.6, mfc=SLATE, mec=SLATE)
         a1.text(7e-5, yy, lab, color=SLATE, fontsize=6.8, ha="left", va="center")
+    if plain:
+        a1.text(3e-5, y0 + 1.5, "red: after waves broke", color=EMBER, fontsize=6.8,
+                ha="left", va="center")
     # direct labels on the first row
-    a1.text(1.6e-12, -0.42, "twin against off member", color=COBALT, fontsize=6.8, ha="left", va="center")
-    a1.text(0.5, -0.42, "hourly range / mean", color=CHARCOAL, fontsize=6.8, ha="right", va="center")
+    a1.text(1.6e-12, -0.42, "new vs old" if plain else "twin against off member", color=COBALT,
+            fontsize=6.8, ha="left", va="center")
+    a1.text(0.5, -0.42, "natural hourly swing" if plain else "hourly range / mean", color=CHARCOAL,
+            fontsize=6.8, ha="right", va="center")
     a1.set_xscale("log")
     a1.set_xlim(1e-13, 1e1)
     a1.xaxis.set_major_locator(FixedLocator([1e-12, 1e-9, 1e-6, 1e-3, 1e0]))
     a1.xaxis.set_major_formatter(LogFormatterMathtext())
     a1.xaxis.set_minor_locator(NullLocator())
-    a1.set_xlabel(r"relative change of $\langle\mathrm{MF}(30.25)\rangle$ [$-$]")
+    a1.set_xlabel("change of the averaged momentum flux\nat 30 km (relative)" if plain
+                  else r"relative change of $\langle\mathrm{MF}(30.25)\rangle$ [$-$]")
     a1.set_yticks(range(len(PAIRS)))
     a1.set_yticklabels(ylab, fontsize=7)
     a1.set_ylim(len(PAIRS) - 0.35, -1.15)
@@ -430,9 +504,13 @@ def fig_observables(plt, outdir):
                 a2.plot(xs(v), y, ls="none", marker="^", ms=4.4, mfc=OCHRE, mec=OCHRE, zorder=4)
         a2.plot(xs(dend), y, ls="none", marker="s", ms=3.8, mfc=EMBER if dend else COBALT,
                 mec=EMBER if dend else COBALT, zorder=4)
+        if plain and abs(dend) > 3600:
+            a2.text(abs(dend) * 0.6, y - 0.42, f"new run stopped {abs(dend) / 3600:.1f} h "
+                    f"{'earlier' if dend < 0 else 'later'}", color=EMBER, fontsize=6.8, ha="right",
+                    va="center")
     a2.axvline(SNAP_S, color=CHARCOAL, lw=0.7, ls=(0, (1, 1.6)), zorder=0)
-    a2.text(SNAP_S * 0.7, -0.75, "one scored\nsnapshot, 132 s", color=CHARCOAL, fontsize=6.8,
-            ha="right", va="center", linespacing=1.0)
+    a2.text(SNAP_S * 0.7, -0.75, "one output\ninterval, 132 s" if plain else "one scored\nsnapshot, 132 s",
+            color=CHARCOAL, fontsize=6.8, ha="right", va="center", linespacing=1.0)
     a2.axvline(3.2e-14, color=GRID, lw=0.8, zorder=0)
     a2.set_xscale("log")
     a2.set_xlim(4e-15, 3e5)
@@ -440,18 +518,28 @@ def fig_observables(plt, outdir):
     fmt = LogFormatterMathtext()
     a2.xaxis.set_major_formatter(lambda v, pos: "0" if abs(v - ZERO) < 1e-20 else fmt(v, pos))
     a2.xaxis.set_minor_locator(NullLocator())
-    a2.set_xlabel(r"time difference, twin minus off member, $|\Delta t|$ [s]")
+    a2.set_xlabel("shift of the same event, new minus old run [s]\n(0: identical)" if plain
+                  else r"time difference, twin minus off member, $|\Delta t|$ [s]")
     a2.tick_params(axis="y", length=0)
     a2.text(0.0, 1.03, "(b)", transform=a2.transAxes, ha="left", va="bottom", fontsize=8.5, color=INK, fontweight="bold")
     kx, ky = 0.07, 1.03
-    keys = [("^", OCHRE, OCHRE, r"$t_c$ onset"), ("o", GROUND, EMBER, "later onsets"),
+    keys = [("^", OCHRE, OCHRE, "first breaking" if plain else r"$t_c$ onset"),
+            ("o", GROUND, EMBER, "later events" if plain else "later onsets"),
             ("s", EMBER, EMBER, "end of run")]
-    xpos = [0.10, 0.33, 0.62]
+    xpos = [0.10, 0.40, 0.68] if plain else [0.10, 0.33, 0.62]
     for (mk, fc, ec, lab), xk in zip(keys, xpos):
         a2.plot([xk], [ky + 0.035], transform=a2.transAxes, ls="none", marker=mk, ms=3.8, mfc=fc,
                 mec=ec, mew=0.75, clip_on=False)
         a2.text(xk + 0.03, ky + 0.035, lab, transform=a2.transAxes, color=SLATE, fontsize=6.8,
                 ha="left", va="center")
+    if plain:
+        dend5 = side_b["S02F5"]["end_dt_s"] / 3600
+        headline(fig, [
+            ("The numbers that get reported barely move.", 9.5, INK, True),
+            ("(a) Averaged momentum fluxes change at least 10,000 times less than the flux's own hour-to-hour "
+             "swing. (b) Breaking events happen at the same\nmoment to within milliseconds; only late in breaking "
+             f"runs do the times drift, and one new run stopped {abs(dend5):.1f} h before its old twin.",
+             7.5, SLATE, False)])
     caption = (
         "(a) Relative change of the window mean of MF(30.25), twin against off member (filled; "
         "cobalt for windows before the first overturning t_c, ember after it), and the relative "
@@ -467,15 +555,16 @@ def fig_observables(plt, outdir):
         "Exact zeros are drawn at the column '0'. Dotted: one scored snapshot (stride 2, about 132 s), "
         "the D-2 tolerance on the t_c event. Face path (bcface=1), pbar=1, CFL 0.4, dz 500 m except "
         "S02F1 (250 m).")
-    save(fig, outdir, "fig_s02_observables", dict(
+    save(fig, outdir, "fig_s02_observables" + ("_plain" if plain else ""), dict(plain_labels=plain,
         inputs=[str(READINGS)], runs=[p[0] for p in PAIRS] + [p[1] for p in PAIRS],
         windows_h={k: MF[k]["window_h"] for k, *_ in wins}, mf_changes=side_a, event_times=side_b,
         zero_column_x=ZERO, caption=caption))
     plt.close(fig)
 
 
-def fig_cost(plt, outdir):
+def fig_cost(plt, outdir, plain=False):
     from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator
+    from matplotlib.transforms import offset_copy
     R = readings()
     C = R["cost"]
     c = np.load(CACHE)
@@ -503,21 +592,31 @@ def fig_cost(plt, outdir):
                 a1.plot(x[-1], y[-1], ls="none", marker="x", ms=3.6, mew=0.9, color=col, zorder=5)
     # direct labels
     L = dict(fontsize=6.8, va="center")
-    a1.text(24.4, 0.101, "PR1-U20-h0.1, PR1-U57-h0.1,\nPR1-U20-h1.0 (24 h)", color=EMBER, ha="left",
-            linespacing=1.0, **L)
+    a1.text(24.4, 0.101, "three old runs\nthat reach 24 h" if plain else "PR1-U20-h0.1, PR1-U57-h0.1,\nPR1-U20-h1.0 (24 h)",
+            color=EMBER, ha="left", linespacing=1.0, **L)
     # labels of the dt-collapsing :lu records, placed in clear space next to their end crosses
-    for rid, (lx, ly), ha in (("PR1-U40-h3.0", (6.75, 0.40), "right"), ("PR1-U57-h1.0", (12.45, 0.75), "left"),
+    for rid, (lx, ly), ha in (("PR1-U40-h3.0", (2.0, 0.42) if plain else (6.75, 0.40), "left" if plain else "right"),
+                              ("PR1-U57-h1.0", (12.45, 0.75), "left"),
                               ("PR1-U20-h3.0", (12.45, 0.27), "left"), ("S15F1", (24.4, 0.66), "left")):
         x, y = c[f"{rid}__tsim_h"], c[f"{rid}__s_per_step"]
-        a1.text(lx, ly, rid, color=EMBER, ha=ha, **L)
+        a1.text(lx, ly, plain_name(TWIN_OF[rid], short=True) if plain else rid, color=EMBER, ha=ha, **L)
         if rid == "PR1-U20-h3.0":
             a1.plot([x[-1] + 0.15, lx - 0.15], [y[-1] * 0.97, ly * 1.02], color=tint(EMBER, 0.6), lw=0.5)
-    a1.text(0.3, 0.255, r"S14S2, $\Delta z$ 250 m", color=EMBER, ha="left", **L)
+    a1.text(0.3, 0.255, "fine grid" if plain else r"S14S2, $\Delta z$ 250 m", color=EMBER, ha="left", **L)
     x, y = c["S02F1__tsim_h"], c["S02F1__s_per_step"]
-    a1.text(x[-1] + 0.5, y[-1], r"S02F1, $\Delta z$ 250 m", color=COBALT, ha="left", **L)
-    a1.text(24.4, 0.0178, "S02F2 to S02F8", color=COBALT, ha="left", **L)
-    a1.text(0.3, 1.25, r":lu off members (s15, a3)", color=EMBER, ha="left", fontsize=7, va="center")
-    a1.text(0.3, 0.0125, r":fft_tridiag twins (d2)", color=COBALT, ha="left", fontsize=7, va="center")
+    a1.text(x[-1] + 0.5, y[-1], "fine grid" if plain else r"S02F1, $\Delta z$ 250 m", color=COBALT,
+            ha="left", **L)
+    a1.text(24.4, 0.0178, "the seven\nother runs" if plain else "S02F2 to S02F8", color=COBALT, ha="left",
+            **L, **({"linespacing": 1.0} if plain else {}))
+    a1.text(0.3, 1.25, "old solver (sparse LU)" if plain else r":lu off members (s15, a3)",
+            color=EMBER, ha="left", fontsize=7, va="center")
+    a1.text(0.3, 0.0125, "new solver (FFT)" if plain else r":fft_tridiag twins (d2)",
+            color=COBALT, ha="left", fontsize=7, va="center")
+    if plain:
+        a1.plot(12.3, 0.0125, ls="none", marker="x", ms=3.6, mew=0.9, color=SLATE)
+        a1.text(12.8, 0.0125, "run ended early", color=SLATE, ha="left", **L)
+        a1.text(23.6, 0.06, "old solver slows once waves break:\nit rebuilds its matrix nearly every step",
+                color=EMBER, ha="right", linespacing=1.0, **L)
     a1.set_yscale("log")
     a1.set_ylim(0.01, 1.6)
     a1.set_xlim(0, 24)
@@ -525,11 +624,15 @@ def fig_cost(plt, outdir):
     a1.yaxis.set_major_locator(FixedLocator([0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]))
     a1.yaxis.set_major_formatter(FuncFormatter(lambda v, p: f"{v:g}"))
     a1.yaxis.set_minor_locator(NullLocator())
-    a1.set_xlabel(r"simulated time $t$ [h]")
-    a1.set_ylabel(r"wall time per step [s]")
+    a1.set_xlabel("simulated time [h]" if plain else r"simulated time $t$ [h]")
+    a1.set_ylabel("computer time per step [s]" if plain else r"wall time per step [s]")
     a1.text(0.0, 1.03, "(a)", transform=a1.transAxes, ha="left", va="bottom", fontsize=8.5, color=INK, fontweight="bold")
 
-    # (b) whole-run s per step, off member against twin
+    # (b) whole-run s per step, off member against twin; plain: the ratio columns sit outside the axes
+    col1 = col2 = a2.get_yaxis_transform()
+    if plain:
+        col1 = offset_copy(col1, fig=fig, x=28, units="points")
+        col2 = offset_copy(col2, fig=fig, x=60, units="points")
     side_b = {}
     for i, (twin, off, dz, *_) in enumerate(PAIRS):
         q = C[twin]
@@ -537,33 +640,70 @@ def fig_cost(plt, outdir):
                 solid_capstyle="round")
         a2.plot(q["off_s_per_step"], i, ls="none", marker="s", ms=4.0, mfc=EMBER, mec=EMBER, zorder=3)
         a2.plot(q["s_per_step"], i, ls="none", marker="o", ms=4.2, mfc=COBALT, mec=COBALT, zorder=3)
-        a2.text(0.98, i, f"{q['per_step_ratio']:.2f}", transform=a2.get_yaxis_transform(), ha="right",
-                va="center", fontsize=7, color=INK)
-        a2.text(1.14, i, f"{q['real_ratio']:.2f}", transform=a2.get_yaxis_transform(), ha="right",
-                va="center", fontsize=7, color=SLATE)
+        # plain: the inverse ratio, as "times faster"; the whole-run ratio of S02F5 compares runs of
+        # different length (15.35 h against 23.81 h), marked with an asterisk
+        star = "*" if plain and abs(q["real_ratio"] / q["per_step_ratio"] - 1) > 0.1 else ""
+        a2.text(1.0 if plain else 0.98, i, f"{1 / q['per_step_ratio']:.1f}×" if plain else f"{q['per_step_ratio']:.2f}",
+                transform=col1, ha="right", va="center", fontsize=7, color=INK)
+        a2.text(1.0 if plain else 1.14, i, f"{1 / q['real_ratio']:.1f}×{star}" if plain else f"{q['real_ratio']:.2f}",
+                transform=col2, ha="right", va="center", fontsize=7, color=SLATE)
         side_b[twin] = {k: q[k] for k in ("s_per_step", "off_s_per_step", "per_step_ratio", "real_ratio",
                                           "real_s", "off_real_s", "steps", "off_steps")}
-    a2.text(0.98, -1.05, "per step", transform=a2.get_yaxis_transform(), ha="right", va="center",
-            fontsize=6.8, color=INK)
-    a2.text(1.14, -1.05, "real", transform=a2.get_yaxis_transform(), ha="right", va="center",
-            fontsize=6.8, color=SLATE)
-    a2.text(1.06, -1.6, "twin / off", transform=a2.get_yaxis_transform(), ha="center", va="center",
-            fontsize=6.8, color=SLATE)
     tw = sum(C[p[0]]["real_s"] for p in PAIRS) / 3600
     to = sum(C[p[0]]["off_real_s"] for p in PAIRS) / 3600
-    a2.text(0.02, len(PAIRS) + 0.05, rf"$\Sigma$ real: {tw:.1f} h (twins) against {to:.1f} h (off members)",
-            transform=a2.get_yaxis_transform(), ha="left", va="top", fontsize=6.8, color=SLATE)
+    if plain:
+        a2.text(1.0, -0.95, "per\nstep", transform=col1, ha="right", va="center",
+                fontsize=6.8, color=INK, linespacing=1.0)
+        a2.text(1.0, -0.95, "whole\nrun", transform=col2, ha="right", va="center",
+                fontsize=6.8, color=SLATE, linespacing=1.0)
+        a2.text(1.0, -2.05, "new is faster", transform=offset_copy(a2.get_yaxis_transform(), fig=fig, x=42, units="points"),
+                ha="center", va="center", fontsize=6.8, color=SLATE)
+        for (mk, col, lab), x0 in ((("o", COBALT, "new solver"), 0.0135), (("s", EMBER, "old solver"), 0.06)):
+            a2.plot(x0, -0.95, ls="none", marker=mk, ms=4.0, mfc=col, mec=col, clip_on=False)
+            a2.text(x0 * 1.12, -0.95, lab, color=col, fontsize=6.8, ha="left", va="center")
+        q5 = C["S02F5"]
+        a2.text(0.02, len(PAIRS) + 0.05,
+                f"total computer time: {tw:.1f} h (new) against {to:.1f} h (old)\n"
+                f"* the new run stopped at {q5['t_end_s'] / 3600:.1f} h, the old one ran longer",
+                transform=a2.get_yaxis_transform(), ha="left", va="top", fontsize=6.8, color=SLATE,
+                linespacing=1.1)
+    else:
+        a2.text(0.98, -1.05, "per step", transform=a2.get_yaxis_transform(), ha="right", va="center",
+                fontsize=6.8, color=INK)
+        a2.text(1.14, -1.05, "real", transform=a2.get_yaxis_transform(), ha="right", va="center",
+                fontsize=6.8, color=SLATE)
+        a2.text(1.06, -1.6, "twin / off", transform=a2.get_yaxis_transform(), ha="center", va="center",
+                fontsize=6.8, color=SLATE)
+        a2.text(0.02, len(PAIRS) + 0.05, rf"$\Sigma$ real: {tw:.1f} h (twins) against {to:.1f} h (off members)",
+                transform=a2.get_yaxis_transform(), ha="left", va="top", fontsize=6.8, color=SLATE)
     a2.set_xscale("log")
     a2.set_xlim(0.012, 0.32)
     a2.xaxis.set_major_locator(FixedLocator([0.02, 0.05, 0.1, 0.2]))
     a2.xaxis.set_major_formatter(FuncFormatter(lambda v, p: f"{v:g}"))
     a2.xaxis.set_minor_locator(NullLocator())
     a2.set_yticks(range(len(PAIRS)))
-    a2.set_yticklabels([p[0] for p in PAIRS], fontsize=7)
-    a2.set_ylim(len(PAIRS) + 0.75, -1.9)
+    a2.set_yticklabels([plain_name(p[0], short=True) if plain else p[0] for p in PAIRS], fontsize=7)
+    a2.set_ylim(*((len(PAIRS) + 1.35, -2.45) if plain else (len(PAIRS) + 0.75, -1.9)))
     a2.tick_params(axis="y", length=0)
-    a2.set_xlabel(r"whole-run wall time per step [s]")
+    a2.set_xlabel("computer time per step, whole run [s]" if plain else r"whole-run wall time per step [s]")
     a2.text(0.0, 1.03, "(b)", transform=a2.transAxes, ha="left", va="bottom", fontsize=8.5, color=INK, fontweight="bold")
+    if plain:
+        # solver-only gain on the current code, dz 500 m, from the standalone timings of
+        # docs/diffusion_solver_performance.md (Section 2 note, item b; Section 1 item c): 0.013 s
+        # outside diffusion, diffusion 0.025 s (:lu) or 0.0040 s (:fft_tridiag) per call, one :lu
+        # factorization 0.701 s, at the twins' whole-run rates of 43 to 61 per 1000 steps when breaking
+        fx = [c[f"{p[0]}__factorizations"] / C[p[0]]["steps"] for p in PAIRS if p[0] in ("S02F5", "S02F6", "S02F7", "S02F8")]
+        lu0, ff = 0.013 + 0.025, 0.013 + 0.0040
+        g_calm, g_brk = lu0 / ff, [(lu0 + 0.701 * f) / ff for f in (min(fx), max(fx))]
+        r = [1 / C[p[0]]["per_step_ratio"] for p in PAIRS]
+        headline(fig, [
+            (f"The new solver ran each step {min(r):.0f} to {max(r):.0f} times faster here, and it does not slow down "
+             "when waves break.", 9.5, INK, True),
+            ("Not all of that gap is the solver: these new runs also had a code clean-up that speeds up the old "
+             "solver too, and fewer runs shared\nthe machine. Estimated from single-call timings, the solver alone "
+             f"is about {g_calm:.0f} times faster before waves break and {g_brk[0]:.0f} to {g_brk[1]:.0f} times\n"
+             "after; late in fine-grid breaking runs the gap grows past 10 times.",
+             7.5, SLATE, False)])
     caption = (
         "(a) Wall time per step against simulated time for the :lu off members (ember; s15 batch, "
         "671bf32, concurrency 12 at launch, and S14S2 in set a3, concurrency 11 at launch) and the "
@@ -577,7 +717,7 @@ def fig_cost(plt, outdir):
         " The number of active runs also fell during each batch (s15 from 12 to 3, a3 from 11 to 1, "
         "d2 from 8 to 1), which lowers the late cost of the longest runs. Face path (bcface=1), pbar=1, "
         "CFL 0.4, julia -t 1, OPENBLAS_NUM_THREADS=1.")
-    save(fig, outdir, "fig_s02_cost", dict(
+    save(fig, outdir, "fig_s02_cost" + ("_plain" if plain else ""), dict(plain_labels=plain,
         inputs=[str(CACHE), str(CACHE.with_suffix(".json")), str(READINGS)],
         runs=[p[0] for p in PAIRS] + [p[1] for p in PAIRS], caveat=CAVEAT,
         cost_series=side, whole_run=side_b,
@@ -591,6 +731,7 @@ def main():
     ap.add_argument("cmd", choices=["extract", "convergence", "observables", "cost", "all"])
     ap.add_argument("--outdir", default=None, help="default: docs/figures in the main checkout")
     ap.add_argument("--font-dir", default=str(FONT_DIR))
+    ap.add_argument("--plain", action="store_true", help="plain-language labels, written as fig_s02_*_plain")
     args = ap.parse_args()
     outdir = Path(args.outdir) if args.outdir else main_checkout() / "docs" / "figures"
     if args.cmd == "extract" or (args.cmd in ("all", "cost", "observables") and not CACHE.exists()):
@@ -600,7 +741,7 @@ def main():
     plt = setup_style(args.font_dir)
     for name, fn in (("convergence", fig_convergence), ("observables", fig_observables), ("cost", fig_cost)):
         if args.cmd in (name, "all"):
-            fn(plt, outdir)
+            fn(plt, outdir, plain=args.plain)
 
 
 if __name__ == "__main__":
