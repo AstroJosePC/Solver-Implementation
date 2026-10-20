@@ -518,6 +518,33 @@ is a bit-identical interim. The default stays `:lu`: changing the default, or qu
 production flux from `:fft_tridiag`, is a separate decision. Variant L is not implemented,
 by its registered rule, since D-1 did not fail.
 
+**Note added 2026-10-20, the diffusion pack refactor and the `operator_split` attribute.**
+Two of the open items after these results were closed on `dev/fft-production`; neither
+changes a reading above, and the readings stay those of the code on `93a716a`.
+- Open item b, `0f6ff62` (`src: preallocate the diffusion pack and unpack buffers`). The six
+  `[nx, nz]` fields of `diffusion_step!` are preallocated `DiffusionSolver` buffers, the pack
+  and unpack loops are typed kernels behind a function barrier (the unpack loop had
+  dispatched dynamically on `solve_cn!` results typed `Any`), and `build_cn_rhs!` selects
+  the periodic neighbours without `mod1`; every floating-point expression and its order are
+  unchanged, and there is no switch. One `diffusion_step!` on the dz 500 m grid (median of
+  30 calls, no refactorization, load average about 17): `:lu` 0.0710 to 0.0250 s,
+  `:lu_reuse` 0.0765 to 0.0248 s, `:fft_tridiag` 0.0529 to 0.0040 s per call, with
+  allocations of 97.3 MB to 9.1 MB (`:lu`, `:lu_reuse`) and 88.2 MB to 0 B
+  (`:fft_tridiag`). Bitwise evidence: a scratch harness comparing the old and new
+  conservative arrays (36 arrays, all three solvers, steps with and without
+  refactorization, max\|diff\| 0.0); and, on hash `1b99274a03cc2a37`, 0.1 h of the S01F1,
+  S01R1, S01F3 and S01R3 commands against the archived `output/d1` records and of S14M1 in
+  `check`, max\|diff\| exactly 0.0 in every shared snapshot (Section 2, Check before
+  launch). Measurements and logs are in Section 2 item b.
+- Open item c, `c5e17e2` (`src: write operator_split to the snapshot attributes`).
+  Snapshots carry `operator_split` (string) and `enable_viscosity`, `enable_cooling`
+  (integers, 1 on, 0 off), and `face_probe.nc` carries `operator_split`. Data variables are
+  unchanged: `check` on the same hash reproduced 34 snapshots at 0.0. A new snapshot reads
+  `operator_split = "lie"` on the default path and `"strang"` with `opstrang=1`.
+
+The cost ratios of D-4 were measured before `0f6ff62`, which speeds up `:lu` as well, and
+are not the ratios of the current code.
+
 
 ## 2. Production use of the spectral-tridiagonal solver, fft twins of the PR1 face-path cases (pre-registration)
 
