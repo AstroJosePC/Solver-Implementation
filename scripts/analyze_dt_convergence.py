@@ -1102,10 +1102,17 @@ def cmd_bitcheck(args):
 
     Exit status 1 unless at least two snapshots are shared and every field (rho, u, w,
     P, T) and the time attribute agree exactly.
+
+    With --relative, report per shared snapshot the time_s of both runs and, per
+    variable, max|diff| and rel = max|f_new - f_ref| / max|f_ref| over all cells
+    ([nz, nx] arrays as written by src/io.jl), with rel_max the largest of the five;
+    the exit status is 0 and --out writes the table as JSON.
     """
     new = {STEP_RE.search(f).group(1): f for f in snapshot_files(args.new)}
     ref = {STEP_RE.search(f).group(1): f for f in snapshot_files(args.ref)}
     common = sorted(set(new) & set(ref))
+    if args.relative:
+        return bitcheck_relative(args, new, ref, common)
     worst = 0.0
     for s in common:
         with Dataset(new[s]) as a, Dataset(ref[s]) as b:
@@ -1120,6 +1127,38 @@ def cmd_bitcheck(args):
           % (os.path.basename(os.path.normpath(args.new)), len(common), worst,
              "IDENTICAL" if ok else "DIFFERENT"))
     sys.exit(0 if ok else 1)
+
+
+def bitcheck_relative(args, new, ref, common):
+    """Relative differences of a run against a reference at every shared snapshot."""
+    vars_ = ("rho", "u", "w", "P", "T")
+    rows = []
+    for s in common:
+        with Dataset(new[s]) as a, Dataset(ref[s]) as b:
+            row = {"step": int(s), "t_new_s": float(a.time_s), "t_ref_s": float(b.time_s)}
+            for v in vars_:
+                fa = np.asarray(a.variables[v][:], float)
+                fb = np.asarray(b.variables[v][:], float)
+                assert fa.shape == fb.shape, "%s shape %s against %s" % (v, fa.shape, fb.shape)
+                d = float(np.max(np.abs(fa - fb)))
+                scale = float(np.max(np.abs(fb)))
+                row["maxdiff_" + v] = d
+                row["rel_" + v] = d / scale if scale > 0 else (0.0 if d == 0 else np.inf)
+        row["rel_max"] = max(row["rel_" + v] for v in vars_)
+        rows.append(row)
+        print("step %s  t %.3f / %.3f s  rel_max %.3e  (%s)"
+              % (s, row["t_new_s"], row["t_ref_s"], row["rel_max"],
+                 ", ".join("%s %.2e" % (v, row["rel_" + v]) for v in vars_)))
+    worst = max((r["rel_max"] for r in rows), default=float("nan"))
+    print("%s: %d shared snapshots, rel_max over all = %.3e"
+          % (os.path.basename(os.path.normpath(args.new)), len(common), worst))
+    if args.out:
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+        with open(args.out, "w") as fh:
+            json.dump({"new": os.path.abspath(args.new), "ref": os.path.abspath(args.ref),
+                       "n_shared": len(common), "rel_max_all": worst, "rows": rows}, fh, indent=1)
+        print("-> %s" % args.out)
+    sys.exit(0)
 
 
 def main():
@@ -1236,6 +1275,9 @@ def main():
     a = sp.add_parser("bitcheck")
     a.add_argument("--new", required=True, help="run directory written by the patched driver")
     a.add_argument("--ref", required=True, help="archived run directory it must reproduce")
+    a.add_argument("--relative", action="store_true",
+                   help="report relative differences per variable instead of the exact test")
+    a.add_argument("--out", default=None, help="JSON of the --relative table")
     args = p.parse_args()
     {"suite": cmd_suite, "zustar": cmd_zustar, "zprofile": cmd_zprofile, "zalt": cmd_zalt,
      "ztheory": cmd_ztheory, "zprobe": cmd_zprobe, "zflin": cmd_zflin, "zequil": cmd_zequil, "zqueney": cmd_zqueney,
