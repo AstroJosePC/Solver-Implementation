@@ -29,6 +29,10 @@ SimConfig.diffusion_solver:
 Fields: `nu_z`, `alpha_z` [nz] in m^2/s; `dt_ref` [s] is the step size the current
 factorization was built with; `rhs` [nx*nz] with linear index (j - 1) nx + i;
 `n_factor` counts the (re)factorizations; `kind` is the method fixed at the first call.
+Field buffers reused by every diffusion_step! call, each [nx, nz] (x first, physical
+cells only): `u_pert` u' = u - u_bar and `w_pert` w in m/s, `T_pert` T' = T - T_bar
+in K, `rho_f` rho in kg/m^3, `u_bar` in m/s and `T_bar` in K of the background Q_bar.
+They are separate arrays from `rhs` and the FFTTridiag workspace (`out`, `rhs_mat`).
 """
 mutable struct DiffusionSolver
     nx::Int
@@ -45,12 +49,20 @@ mutable struct DiffusionSolver
     n_factor::Int               # number of (re)factorizations of the CN left-hand sides
     pattern::Any                # :lu_reuse: (colptr, rowval) of the first global matrix
     fft::Any                    # :fft_tridiag: FFTTridiag workspace
+    u_pert::Matrix{Float64}     # u' [nx, nz]
+    w_pert::Matrix{Float64}     # w [nx, nz]
+    T_pert::Matrix{Float64}     # T' [nx, nz]
+    rho_f::Matrix{Float64}      # rho [nx, nz]
+    u_bar::Matrix{Float64}      # background u [nx, nz]
+    T_bar::Matrix{Float64}      # background T [nx, nz]
 end
 
 function DiffusionSolver(nx::Int, nz::Int)
     N = nx * nz
     DiffusionSolver(nx, nz, N, nothing, nothing, zeros(N),
-                    zeros(nz), zeros(nz), 0.0, false, :lu, 0, nothing, nothing)
+                    zeros(nz), zeros(nz), 0.0, false, :lu, 0, nothing, nothing,
+                    zeros(nx, nz), zeros(nx, nz), zeros(nx, nz),
+                    zeros(nx, nz), zeros(nx, nz), zeros(nx, nz))
 end
 
 """Implicit diffusion methods accepted by SimConfig.diffusion_solver."""
@@ -158,29 +170,18 @@ end
 Build the Crank-Nicholson right-hand side vector:
   (I + dt/2 * D) * u^n
 with altitude-dependent diffusion coefficient kappa_z[j].
+Shapes: field [nx, nz] (x first), rhs [nx*nz] with linear index (j - 1) nx + i,
+kappa_z [nz] in m^2/s; dx, dz in m, dt in s.
 """
 function build_cn_rhs!(rhs::Vector{Float64}, field::AbstractMatrix{Float64},
                        nx::Int, nz::Int, dx::Float64, dz::Float64,
                        kappa_z::Vector{Float64}, dt::Float64)
     c = dt / 2.0
+    size(field) == (nx, nz) && length(rhs) == nx * nz && length(kappa_z) == nz ||
+        error("build_cn_rhs!: field $(size(field)), rhs $(length(rhs)), kappa_z $(length(kappa_z)) for nx = $nx, nz = $nz")
 
-    for j in 1:nz, i in 1:nx
-        row = linear_index(i, j, nx)
-
-        u_c = field[i, j]
-
-        # x-neighbors (periodic)
-        u_left  = field[mod1(i - 1, nx), j]
-        u_right = field[mod1(i + 1, nx), j]
-
-        # z-neighbors (Neumann: ghost = interior value)
-        u_below = j > 1  ? field[i, j-1] : field[i, j]
-        u_above = j < nz ? field[i, j+1] : field[i, j]
-
-        # x-Laplacian with local kappa
-        lap_x = kappa_z[j] * (u_left - 2.0 * u_c + u_right) / dx^2
-
-        # z-divergence form: d/dz(kappa * du/dz)
+    @inbounds for j in 1:nz
+        # z-divergence form face coefficients (Neumann: ghost = interior value)
         if j < nz
             kappa_top_face = 0.5 * (kappa_z[j] + kappa_z[j+1])
         else
@@ -191,9 +192,30 @@ function build_cn_rhs!(rhs::Vector{Float64}, field::AbstractMatrix{Float64},
         else
             kappa_bot_face = kappa_z[j]
         end
-        lap_z = (kappa_top_face * (u_above - u_c) - kappa_bot_face * (u_c - u_below)) / dz^2
+        j_below = j > 1  ? j - 1 : j
+        j_above = j < nz ? j + 1 : j
 
-        rhs[row] = u_c + c * (lap_x + lap_z)
+        for i in 1:nx
+            row = linear_index(i, j, nx)
+
+            u_c = field[i, j]
+
+            # x-neighbors (periodic), mod1(i - 1, nx) and mod1(i + 1, nx)
+            u_left  = field[i == 1 ? nx : i - 1, j]
+            u_right = field[i == nx ? 1 : i + 1, j]
+
+            # z-neighbors (Neumann: ghost = interior value)
+            u_below = field[i, j_below]
+            u_above = field[i, j_above]
+
+            # x-Laplacian with local kappa
+            lap_x = kappa_z[j] * (u_left - 2.0 * u_c + u_right) / dx^2
+
+            # z-divergence form: d/dz(kappa * du/dz)
+            lap_z = (kappa_top_face * (u_above - u_c) - kappa_bot_face * (u_c - u_below)) / dz^2
+
+            rhs[row] = u_c + c * (lap_x + lap_z)
+        end
     end
     return nothing
 end
@@ -446,48 +468,94 @@ function diffusion_step!(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
         solver.dt_ref = dt
     end
 
-    # Extract physical domain fields (perturbations only)
-    u_pert_field = zeros(nx, nz)
-    w_field = zeros(nx, nz)
-    T_pert_field = zeros(nx, nz)
-    rho_field = zeros(nx, nz)
-    
-    u_bar_field = zeros(nx, nz)
-    T_bar_field = zeros(nx, nz)
+    # Extract physical domain fields (perturbations only) into the solver buffers
+    pack_perturbations!(solver, Q, Q_bar, grid, config)
 
-    for j in 1:nz, i in 1:nx
+    # Solve for u' (momentum diffusion)
+    build_cn_rhs!(solver.rhs, solver.u_pert, nx, nz, grid.dx, grid.dz, solver.nu_z, dt)
+    u_pert_new = solve_cn!(solver, :nu, 1)
+
+    # Solve for w (momentum diffusion)
+    build_cn_rhs!(solver.rhs, solver.w_pert, nx, nz, grid.dx, grid.dz, solver.nu_z, dt)
+    w_new = solve_cn!(solver, :nu, 2)
+
+    # Solve for T' (thermal diffusion)
+    build_cn_rhs!(solver.rhs, solver.T_pert, nx, nz, grid.dx, grid.dz, solver.alpha_z, dt)
+    T_pert_new = solve_cn!(solver, :alpha, 3)
+
+    # Reconstruct conservative variables from (background + diffused perturbation)
+    unpack_conservative!(Q, Q_bar, solver, u_pert_new, w_new, T_pert_new, grid, config)
+
+    return nothing
+end
+
+"""
+    pack_perturbations!(solver, Q, Q_bar, grid, config)
+
+Fill the DiffusionSolver buffers [nx, nz] (x first, physical cells) from the
+conservative states Q, Q_bar [4, nx + 2ng, nz + 2ng] (rho, rho u, rho w, E; SI):
+u_pert = u - u_bar, w_pert = w (w_bar assumed 0), T_pert = P/(rho R) - T_bar with
+T_bar = P_bar/(rho_bar R), rho_f = rho, and u_bar, T_bar of the background, with
+P = (gamma - 1)(E - rho (u^2 + w^2)/2) (primitive_from_conservative).
+"""
+function pack_perturbations!(solver::DiffusionSolver, Q::Array{Float64,3},
+                             Q_bar::Array{Float64,3}, grid::Grid2D, config::SimConfig)
+    nx, nz, ng = grid.nx, grid.nz, grid.ng
+    u_pert_field, w_field, T_pert_field = solver.u_pert, solver.w_pert, solver.T_pert
+    rho_field, u_bar_field, T_bar_field = solver.rho_f, solver.u_bar, solver.T_bar
+    for A in (u_pert_field, w_field, T_pert_field, rho_field, u_bar_field, T_bar_field)
+        size(A) == (nx, nz) || error("DiffusionSolver buffer $(size(A)), grid is $((nx, nz))")
+    end
+    size(Q) == size(Q_bar) == (4, nx + 2ng, nz + 2ng) ||
+        error("diffusion_step!: Q $(size(Q)), Q_bar $(size(Q_bar)), grid $((nx, nz, ng))")
+
+    @inbounds for j in 1:nz, i in 1:nx
         ig = i + ng
         jg = j + ng
         Qi = SVector(Q[1,ig,jg], Q[2,ig,jg], Q[3,ig,jg], Q[4,ig,jg])
         rho, u, w, P = primitive_from_conservative(Qi, config.gamma)
-        
+
         Qbar_i = SVector(Q_bar[1,ig,jg], Q_bar[2,ig,jg], Q_bar[3,ig,jg], Q_bar[4,ig,jg])
         rho_b, u_b, w_b, P_b = primitive_from_conservative(Qbar_i, config.gamma)
         T_b = P_b / (rho_b * config.R_gas)
-        
+
         u_bar_field[i, j] = u_b
         T_bar_field[i, j] = T_b
-        
+
         u_pert_field[i, j] = u - u_b
         w_field[i, j] = w   # w_bar is assumed 0
         T_pert_field[i, j] = P / (rho * config.R_gas) - T_b
         rho_field[i, j] = rho
     end
+    return nothing
+end
 
-    # Solve for u' (momentum diffusion)
-    build_cn_rhs!(solver.rhs, u_pert_field, nx, nz, grid.dx, grid.dz, solver.nu_z, dt)
-    u_pert_new = solve_cn!(solver, :nu, 1)
+"""
+    unpack_conservative!(Q, Q_bar, solver, u_pert_new, w_new, T_pert_new, grid, config)
 
-    # Solve for w (momentum diffusion)
-    build_cn_rhs!(solver.rhs, w_field, nx, nz, grid.dx, grid.dz, solver.nu_z, dt)
-    w_new = solve_cn!(solver, :nu, 2)
+Write the physical cells of Q [4, nx + 2ng, nz + 2ng] from the diffused perturbations
+u_pert_new, w_new (m/s) and T_pert_new (K), each [nx*nz] with linear index
+(j - 1) nx + i, and the solver buffers rho_f, u_bar, T_bar [nx, nz]: rho unchanged,
+u = u_bar + u', T = T_bar + T', P = rho R T floored at (gamma - 1) Q_bar[4] 1e-4,
+E = P/(gamma - 1) + rho (u^2 + w^2)/2. A separate function so that the three
+solution vectors, which solve_cn! returns through untyped solver fields, have a
+concrete type inside the loop.
+"""
+function unpack_conservative!(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
+                              solver::DiffusionSolver, u_pert_new::Vector{Float64},
+                              w_new::Vector{Float64}, T_pert_new::Vector{Float64},
+                              grid::Grid2D, config::SimConfig)
+    nx, nz, ng = grid.nx, grid.nz, grid.ng
+    rho_field, u_bar_field, T_bar_field = solver.rho_f, solver.u_bar, solver.T_bar
+    for A in (rho_field, u_bar_field, T_bar_field)
+        size(A) == (nx, nz) || error("DiffusionSolver buffer $(size(A)), grid is $((nx, nz))")
+    end
+    length(u_pert_new) == length(w_new) == length(T_pert_new) == nx * nz ||
+        error("unpack_conservative!: solution lengths differ from nx*nz = $(nx * nz)")
+    size(Q) == size(Q_bar) == (4, nx + 2ng, nz + 2ng) ||
+        error("diffusion_step!: Q $(size(Q)), Q_bar $(size(Q_bar)), grid $((nx, nz, ng))")
 
-    # Solve for T' (thermal diffusion)
-    build_cn_rhs!(solver.rhs, T_pert_field, nx, nz, grid.dx, grid.dz, solver.alpha_z, dt)
-    T_pert_new = solve_cn!(solver, :alpha, 3)
-
-    # Reconstruct conservative variables from (background + diffused perturbation)
-    for j in 1:nz, i in 1:nx
+    @inbounds for j in 1:nz, i in 1:nx
         ig = i + ng
         jg = j + ng
         idx = linear_index(i, j, nx)
@@ -497,10 +565,10 @@ function diffusion_step!(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
         w = w_new[idx]
         T = T_bar_field[i, j] + T_pert_new[idx]
         P = rho * config.R_gas * T
-        
+
         # Prevent numerical negative pressures
         P = max(P, Q_bar[4, ig, jg] * (config.gamma - 1.0) * 1e-4)
-        
+
         E = P / (config.gamma - 1.0) + 0.5 * rho * (u^2 + w^2)
 
         Q[1, ig, jg] = rho
@@ -508,6 +576,5 @@ function diffusion_step!(Q::Array{Float64,3}, Q_bar::Array{Float64,3},
         Q[3, ig, jg] = rho * w
         Q[4, ig, jg] = E
     end
-
     return nothing
 end
