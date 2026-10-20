@@ -377,7 +377,7 @@ launch)
     git diff > "${STAMPS%.start}.git.diff" 2>/dev/null
     DH=$(driver_hash); LH=$(shasum -a 256 "$0" | cut -c1-16)
     NCONC=$(echo $run_cases | wc -w | tr -d ' ')
-    echo "$(date '+%F %T') S14 launch set $SET (ublend=$UB km) driver $DH launcher $LH ($0) git $GIT_COMMIT $GIT_DIRTY concurrency $NCONC" >> "$STAMPS"
+    echo "$(date '+%F %T') S14 launch set $SET (ublend=$UB km) driver $DH launcher $LH ($0) git $GIT_COMMIT $GIT_DIRTY concurrency $NCONC load $(sysctl -n vm.loadavg | tr -d '{}' | xargs)" >> "$STAMPS"
     [ -f "$RUN_MATRIX" ] || echo "run_id,set,start,end,exit,real_s,steps,t_end_s,mean_dt_s,s_per_step,concurrency,git_commit,git_dirty,driver_src_hash,launcher_hash,command,local_dir,archive_dir" > "$RUN_MATRIX"
     for c in $run_cases; do
         mkdir -p "$MAGNUSP_OUTPUT/$(case_dir "$c")"   # the Queney driver does not create its outdir
