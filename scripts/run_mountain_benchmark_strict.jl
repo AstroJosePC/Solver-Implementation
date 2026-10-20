@@ -1,6 +1,15 @@
 # =============================================================================
 # Strict Mountain-Wave Benchmark Driver (Srivastava et al. 2022, Sec 3.3)
 # Matches Tables 9, 10, 11 exactly.
+#
+# Options (--key=value): --dx, --dz (m), --tend_hr, --bcface=1, --pbar=1,
+# --diffsolver=lu|lu_reuse|fft, --difftol=X and --outdir. The default outdir is
+# output/mountain_benchmark_strict_dx<dx> with tags appended only when an option
+# departs from its default, in the order _bcface_pbarP_dfft_dtol<X>
+# (--diffsolver=lu_reuse tags _dlureuse in place of _dfft). --diffsolver and
+# --difftol set SimConfig.diffusion_solver and diffusion_dt_tol (src/diffusion.jl);
+# they act only when the implicit viscosity is on, and this benchmark runs inviscid
+# (Table 10), so they leave its solution unchanged.
 # =============================================================================
 
 using Pkg
@@ -35,8 +44,17 @@ bcface = get_arg("bcface", 0) > 0
 # SimConfig.pbar_mode = :pressure and tags the default outdir _pbarP; the default 0 keeps
 # the pinned :total of every earlier record (Section 11, decision 1).
 pbar = get_arg("pbar", 0) > 0
+# Implicit diffusion method and refactorization tolerance (header); the defaults lu and
+# 0.01 are the path of every earlier record.
+diffsolver_in = get_arg("diffsolver", "lu")
+diffsolver = diffsolver_in == "lu" ? :lu : diffsolver_in == "lu_reuse" ? :lu_reuse :
+             diffsolver_in == "fft" ? :fft_tridiag :
+             error("--diffsolver must be lu, lu_reuse or fft, got $(diffsolver_in)")
+difftol = get_arg("difftol", 0.01)
 outdir = get_arg("outdir", "output/mountain_benchmark_strict_dx$(Int(dx_in))" * (bcface ? "_bcface" : "") *
-                           (pbar ? "_pbarP" : ""))
+                           (pbar ? "_pbarP" : "") *
+                           (diffsolver === :lu ? "" : diffsolver === :fft_tridiag ? "_dfft" : "_dlureuse") *
+                           (difftol == 0.01 ? "" : "_dtol$(difftol)"))
 
 nx = Int(round(LX / dx_in))
 nz = Int(round(LZ / dz_in))
@@ -57,6 +75,8 @@ config = earth_config(
     K0_sponge = 0.005,
     pbar_mode = pbar ? :pressure : :total, # :total for the legacy records; see reflection_convergence_tests.md §9
     bottom_forcing = bcface ? :face : :ghost,
+    diffusion_solver = diffsolver,
+    diffusion_dt_tol = difftol,
 )
 
 # Bell-shaped hill (Srivastava Sec 3.3)
