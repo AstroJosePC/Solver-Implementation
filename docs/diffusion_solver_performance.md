@@ -517,3 +517,445 @@ segment A column and gives the same breaking-flow diagnostics on segment B, and 
 is a bit-identical interim. The default stays `:lu`: changing the default, or quoting a
 production flux from `:fft_tridiag`, is a separate decision. Variant L is not implemented,
 by its registered rule, since D-1 did not fail.
+
+
+## 2. Production use of the spectral-tridiagonal solver, fft twins of the PR1 face-path cases (pre-registration)
+
+Written on 2026-10-20, before any run of the set below was launched. To be committed on its
+own and tagged `prereg/s02-fft-production`; the tag timestamp precedes the launch. Nothing
+registered in Section 1 is changed.
+
+Policy, unchanged and confirmed for this section: `SimConfig.diffusion_solver` keeps its
+default `:lu` and `SimConfig.diffusion_dt_tol` its default 0.01, so the default path keeps
+reproducing every earlier record and the launcher `check` keeps judging it. Production use
+of `:fft_tridiag` means that production launchers pass `diffsolver=fft` explicitly, in the
+same way as `bcface=1` and `pbar=1`. No flux is quoted from a run of this set before its
+readings are scored, and the decision rule below says which readings allow production
+launchers to pass `diffsolver=fft`.
+
+The change under test is the one degree of freedom of Section 1, the linear solver of the
+Crank-Nicolson diffusion step, at fixed equations, `dt` rule and refactorization rule.
+Section 1 scored it on two segments of the dz 500 m column, up to 9 h (U40, `h` = 0.1 km)
+and 5 h (U57, `h` = 3 km). This section extends the comparison to the configurations that
+production uses: the 24 h PR1 face-path cases at the other `(U, h)` pairs, and the 250 m
+grid that Section 11 of `reflection_convergence_tests.md` requires as the resolution twin.
+Each `:fft_tridiag` run here is scored against an archived `:lu` record of the same command
+without `diffsolver`, so the set contains no new `:lu` run.
+
+### What is settled before this registration
+
+**a. Section 1 results.** Scored on 2026-10-20 (`53558a8`). On segment A, 492 shared
+snapshots to 9 h, the largest `rel` values were `rho` 1.39e-13, `u` 1.11e-12, `P` 1.72e-14,
+`T` 2.71e-13 and `w` 9.96e-9 (0.35 h, during the ramp), and the 6 to 9 h `MF(30.25)`
+changed by −2.55e-12; step counts were equal (49 153). The absolute `w` difference stayed
+between 2.7e-11 and 5.3e-11 m/s after 1 h with no trend, on both segments, at forcing
+amplitudes `U h` of 4 and 171 km m/s. On segment B, every variable stayed at round-off up
+to 2 h, the `zh3` crossings at 2.52 h and 4.36 h agreed to about 1e-12 h, and `rel_max`
+grew after 2 h with an e-folding time of 0.61 h, first exceeding 1e-9 at 4.65 h
+(consistent with H2 of Section 1). Cost, whole run: `:fft_tridiag`/`:lu` 0.78 (A) and 0.67
+(B), at concurrency 6.
+
+**b. The shared pack and unpack, refactored without a switch (`0f6ff62`).** The six
+`zeros(nx, nz)` per call and the reconstruction loop, which dispatched dynamically on
+`solve_cn!` results typed `Any`, were replaced by preallocated `DiffusionSolver` buffers and
+two typed kernels, and `build_cn_rhs!` selects the periodic neighbours without `mod1` and
+computes the face diffusivities once per level. Every floating-point expression and its
+evaluation order are unchanged,
+so the change has no switch. Evidence, from a scratch harness that saves the conservative
+arrays of the old code and compares the new ones element by element (`:lu`, `:lu_reuse` and
+`:fft_tridiag`; steps `dt0`, `1.004 dt0`, `0.8 dt0`; dz 500 m random state with the CFL
+`dt` and with `dt0` = 60 s, the U40 `h` 1 km face snapshot at 11.78 h, dz 250 m random
+state): 36 arrays bitwise identical, max\|diff\| 0.0. `scripts/check_diffusion_solvers.jl`
+on `0f6ff62` reproduces the Section 1 maxima (`:lu_reuse` 0.0; `:fft_tridiag` `rel_field`
+3.4e-14 and 4.0e-14, `rel_incr` 5.6e-9 and 2.9e-11 at dz 500 and 250 m).
+
+Measured cost of one `diffusion_step!` on the dz 500 m grid (snapshot state, no
+refactorization, median of 30 calls after warm-up, julia -t 1, `OPENBLAS_NUM_THREADS=1`,
+with about 16 cores busy with other jobs, load average about 17, old and new measured about
+2 min apart):
+
+| solver | old [s] | new [s] | ratio | allocated per call, old / new |
+|---|---|---|---|---|
+| `:lu` | 0.0710 | 0.0250 | 0.353 | 97.3 MB / 9.1 MB (the three backsolve results) |
+| `:lu_reuse` | 0.0765 | 0.0248 | 0.324 | 97.3 MB / 9.1 MB |
+| `:fft_tridiag` | 0.0529 | 0.0040 | 0.076 | 88.2 MB / 0 B |
+
+The unpack loop fell from 0.0440 s to 0.00024 s per call (it was 83 % of the old
+`:fft_tridiag` step and 62 % of the old `:lu` step). The three solves are unchanged
+(0.0229 s `:lu`, 0.0027 s `:fft_tridiag`) and are now 92 % of the `:lu` step and 66 % of the
+`:fft_tridiag` step. The pieces sum to the measured step within 0.0006 s. At dz 250 m,
+`check_diffusion_solvers.jl` gives 0.008 to 0.010 s of wall clock per `:fft_tridiag` step
+including the field extraction, against 0.050 to 0.059 s for `:lu` without refactorization
+and 2.4 to 2.6 s with one. The refactor speeds up `:lu` as well, so the cost ratio of the two solvers
+on the new code is not the Section 1 ratio. The six buffers add `6 nx nz 8` bytes per
+`DiffusionSolver` (9 MB at 1000 x 190, 18 MB at 1000 x 380), allocated also when viscosity
+is off. Logs: `~/MAGNUSP_runs/d2/prereg/pack/` (`harness.jl`, `harness_{old,new}.log`,
+`check_diffusion_solvers_new.{log,json}`).
+
+**c. Snapshot attributes (`c5e17e2`).** Snapshots now also carry `operator_split`,
+`enable_viscosity` and `enable_cooling` (the last two as Int, 1 on, 0 off). Data variables,
+dimensions and the solution are unchanged. Reproduction is judged on the variables (`rho`,
+`u`, `w`, `P`, `T`, `time_s`), as in Section 1.
+
+**d. The off members.** Every `:lu` member is an archived record. Its archived log header
+was read on 2026-10-20 (`output/reflection_tests/logs/<run ID>.log`) and matches the twin
+in every option except `diffsolver`: CFL 0.40, K0 0.005, LZ 95 km, `pbar_mode` pressure,
+`ramp` tanh(t/2 h), ground `w` on the face, `LX` 4000 km, `sigma` 100 km, `dx` 4000 m, sweep
+order `xz`, sponge inline, face probe off, and the `dz`, `outint` and `t_end` of the twin.
+The s15 records ran on `671bf32` (clean, driver and `src/` hash `c503a6c106887e07`) at
+concurrency 12; S14S2 ran in set `a3`, before the provenance headers, and its header block is
+the driver's own configuration printout. The diffusion solver of all of them is the global
+LU of the code of that time, which the merged default path reproduces: Section 1 D-0 (S14M1
+to 9 h and PR1-U57-h3.0 to 5 h, max\|diff\| 0.0) and, for S14S2, the check below.
+
+S14S2 as the off member of the dz 250 m pair. The registered pair is an on/off pair at
+dz 250 m on the face path, `h` = 0.1 km, 9 h. The archived S14S2
+(`output/arsia_mons_stage2_9h_K0_0.005_LZ95_pbarP_ramp2h_dz250_bcface/run_U40.0_h0.1`,
+command `hours=9 pbar=1 ramp=2 k0=0.005 lz=95 u=40 h=0.1 bcface=1 dz=250 outint=200`,
+98 768 steps, 18 322 s `real` at concurrency 11) is exactly that configuration on `:lu`.
+0.1 h of its command on `0f6ff62`, run on 2026-10-20 at 05:20 to scratch (1098 steps, 104 s
+`real`, julia -t 1, `OPENBLAS_NUM_THREADS=1`, load average about 17), reproduced it with
+max\|diff\| exactly 0.0 in all 6 shared snapshots
+(`~/MAGNUSP_runs/d2/prereg/S14S2_repro_0.1h.{log,bitcheck.log}`). S14S2 is therefore reused
+as the off member, and no new `:lu` run is made. The 0.1 h reproduction is repeated on the
+launch hash (Check before launch); if it fails there, the set gains the `:lu` member S02L1
+under a dated note before launch.
+
+**e. First overturning in the off members.** `zoverturn --stride 2` (definitions of
+Section 15 of `reflection_convergence_tests.md`) on the archived records, from the s15
+products (`output/analysis/s15/zoverturn_F.json`, `zoverturn_PR1_h1.json`) and from new runs
+of the same command on 2026-10-20 (`~/MAGNUSP_runs/d2/prereg/zoverturn_{S14S2,PR1_U20_h0.1,PR1_U57_h0.1,PR1_h3}.{json,log}`,
+one process at a time). `t_c` is the earliest first onset over all bands and both kinds.
+
+| off member | twin | `t_c` [h] | event at `t_c` | later onsets (descriptive) |
+|---|---|---|---|---|
+| S14S2 | S02F1 | none to 9 h | none | none |
+| PR1-U20-h0.1 | S02F2 | none to 24 h | none | none |
+| PR1-U57-h0.1 | S02F3 | 10.69 | convective, 0 to 5 km, at 1.0 km | convective 45 to 55 km at 15.75 h (54.5 km); none in 5 to 45 km |
+| PR1-U20-h1.0 | S02F4 | 4.58 | convective, 0 to 5 km, at 1.0 km | kinematic 45 to 55 km 6.77 h; free column 15.34 h |
+| S15F1 (PR1-U40-h1.0) | S02F5 | 3.18 | convective, 0 to 5 km, at 1.0 km | kinematic 45 to 55 km 4.03 h; free column 13.02 h |
+| PR1-U57-h1.0 | S02F6 | 2.67 | convective, 0 to 5 km, at 1.0 km | kinematic 45 to 55 km 3.15 h; free column 10.15 h |
+| PR1-U20-h3.0 | S02F7 | 2.64 | convective, 0 to 5 km, at 1.0 km | kinematic 45 to 55 km 3.04 h; free column 9.52 h |
+| PR1-U40-h3.0 | S02F8 | 1.90 | convective, 0 to 5 km, at 1.0 km | kinematic 45 to 55 km 2.12 h; free column 5.66 h |
+| S15F2 | S02F9 | 2.70 | convective, 0 to 5 km, at 0.5 km | kinematic 45 to 55 km 3.64 h; free column 10.92 h |
+
+The `t_c` event lies at 2 dz in every breaking record, inside the near-ground layer, and
+precedes the `zh3` ground crossing of the `h` = 3 km records (5.27 h for U20, 3.40 h for U40).
+Two of the three `h` = 0.1 km records show no overturning; PR1-U57-h0.1 shows the near-ground
+event at 10.69 h and one above the 53.3 km critical level at 15.75 h, so its 18 to 24 h
+window lies after `t_c`.
+
+### Runs
+
+Common arguments `P24` = `hours=24 pbar=1 ramp=2 k0=0.005 lz=95 bcface=1`
+(`sweep_arsia_mons_stage2.jl`, CFL 0.4). Every run passes `diffsolver=fft` (tag `_dfft`,
+after the `_dz` tag and before `_bcface`) and `bcface=1` explicitly. All nine go in one
+launcher set `d2`, one process each, `julia -t 1`, `OPENBLAS_NUM_THREADS=1`, concurrency 9,
+under `caffeinate -s -i` with the cost monitor. The set writes under
+`MAGNUSP_OUTPUT=~/MAGNUSP_runs/d2` and archives to `output/d2/`. It is launched from the
+worktree of `dev/fft-production`, whose git-ignored `output` is to be a symbolic link to the
+archive `output/` of the main checkout (as for `d1`), so `check` reads the archived
+references and `archive` writes to the mount. Archive paths of the off members below are
+relative to the main checkout; `S24` = `output/arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_bcface`.
+
+| id | regime | arguments | duration | off member | off member archive | off member steps, `real` [s] |
+|---|---|---|---|---|---|---|
+| S02F1 | non-breaking, dz 250 m | `hours=9 pbar=1 ramp=2 k0=0.005 lz=95 u=40 h=0.1 bcface=1 dz=250 outint=200 diffsolver=fft` | 9 h | S14S2 | `output/arsia_mons_stage2_9h_K0_0.005_LZ95_pbarP_ramp2h_dz250_bcface/run_U40.0_h0.1` | 98 768, 18 322 |
+| S02F2 | non-breaking | `P24 u=20 h=0.1 diffsolver=fft` | 24 h | PR1-U20-h0.1 | `S24/run_U20.0_h0.1` | 131 070, 13 462 |
+| S02F3 | non-breaking to 10.69 h | `P24 u=57 h=0.1 diffsolver=fft` | 24 h | PR1-U57-h0.1 | `S24/run_U57.0_h0.1` | 131 079, 13 612 |
+| S02F4 | breaking, `h` = 1 km | `P24 u=20 h=1 diffsolver=fft` | 24 h | PR1-U20-h1.0 | `S24/run_U20.0_h1.0` | 131 223, 13 555 |
+| S02F5 | breaking, `h` = 1 km | `P24 u=40 h=1 diffsolver=fft` | 24 h or `dt` collapse (23.81 h in the off member) | S15F1 | `S24/run_U40.0_h1.0` | 160 044, 23 815 |
+| S02F6 | breaking, `h` = 1 km | `P24 u=57 h=1 diffsolver=fft` | to `dt` collapse (11.99 h) | PR1-U57-h1.0 | `S24/run_U57.0_h1.0` | 78 071, 12 850 |
+| S02F7 | breaking, `h` = 3 km | `P24 u=20 h=3 diffsolver=fft` | to `dt` collapse (11.45 h) | PR1-U20-h3.0 | `S24/run_U20.0_h3.0` | 72 106, 10 302 |
+| S02F8 | breaking, `h` = 3 km | `P24 u=40 h=3 diffsolver=fft` | to `dt` collapse (7.02 h) | PR1-U40-h3.0 | `S24/run_U40.0_h3.0` | 45 200, 6 593 |
+| S02F9 | breaking, `h` = 1 km, dz 250 m | `P24 u=40 h=1 dz=250 outint=200 diffsolver=fft` | 24 h or `dt` collapse; off member to 11.73 h only | S15F2 | `output/arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dz250_bcface/run_U40.0_h1.0` | 142 400 to 11.73 h (stopped), 35 227 |
+
+Directories under `~/MAGNUSP_runs/d2` (from `dry d2`):
+`arsia_mons_stage2_9h_K0_0.005_LZ95_pbarP_ramp2h_dz250_dfft_bcface/run_U40.0_h0.1`,
+`arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U<U>.0_h<h>` for S02F2 to
+S02F8, and `arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dz250_dfft_bcface/run_U40.0_h1.0`.
+None of them is the name of an archived record, so no record is overwritten.
+
+Not repeated here: PR1-U40-h0.1 (Section 1 segment A, to 9 h, on the same column and
+command apart from `hours`) and PR1-U57-h3.0 (Section 1 segment B, to 5 h of its 5.47 h).
+S15T1 (CFL 0.2) and S14V3p (Queney driver) are not production cases and are not twinned.
+S02F9 is the one case of this set outside the PR1 list. It is the `h` = 1 km twin at
+dz 250 m that Section 15 needs and that `:lu` could not finish (Section 15 note on stopping
+S15F2: about 1.5 s per step at 11.5 h, 50 h or more for the remaining 12.3 h).
+
+### Cost table
+
+Basis. The `:fft_tridiag` rows of `d1` ran at 0.0756 s per step (S01F1) and 0.0763 s per
+step (S01F3) at concurrency 6. Their standalone model was 0.013 s outside diffusion plus
+0.0529 s of `diffusion_step!`, 0.066 s, so the batch ran at 1.15 times the standalone rate.
+After `0f6ff62` the standalone model is 0.013 + 0.0040 = 0.017 s at dz 500 m and
+0.026 + 0.008 = 0.034 s at dz 250 m (item b; non-diffusion parts from Section 1 item c).
+With the same factor 1.15: about 0.020 s per step at dz 500 m and 0.039 s at dz 250 m. The
+`:fft_tridiag` refactorization costs 0.14 to 0.27 ms, so breaking runs, which refactorize
+often, are costed at the same rate. Step counts are those of the off members.
+
+| id | steps | s per step (est.) | est. wall | disk [GB] |
+|---|---|---|---|---|
+| S02F1 | 98 768 | 0.039 | 1.07 h | 7.0 |
+| S02F2 | 131 070 | 0.020 | 0.73 h | 9.3 |
+| S02F3 | 131 079 | 0.020 | 0.73 h | 9.3 |
+| S02F4 | 131 223 | 0.020 | 0.73 h | 9.3 |
+| S02F5 | 160 044 | 0.020 | 0.89 h | 11.0 |
+| S02F6 | 78 071 | 0.020 | 0.43 h | 5.5 |
+| S02F7 | 72 106 | 0.020 | 0.40 h | 5.1 |
+| S02F8 | 45 200 | 0.020 | 0.25 h | 3.2 |
+| S02F9 | 142 400 to 11.73 h; about 585 000 to 24 h if `dt` stays near 0.10 s | 0.039 | 1.54 h to 11.73 h; about 6.3 h to 24 h | 10 to 11.73 h; up to about 44 |
+
+The `dz` 250 m `h` = 1 km step is modelled at about 0.40 h of wall clock per simulated hour
+in the 10.6 to 11.7 h window, where `dt` is about 0.1 s. The wall clock of the set is set by
+S02F9, between about 1.5 h (a `dt` collapse soon after 11.73 h) and 6.3 h. The CPU time
+summed over the nine runs is 6.8 to 11.5 h, against 41 h of `real` for the nine off
+members. Disk is 70 to 104 GB, against 3.2 TB free locally and 1.4 TB free on the archive
+mount; the archive copy takes 0.9 to 1.3 h at the a3 rate (31 GB in 1370 s).
+
+Concurrency. The machine had a load average of about 17 from other jobs on 2026-10-20.
+Nine more processes would then exceed the 16 performance cores, and the estimates above
+would not hold. The launch waits until the load average is below about 7, or the set is
+launched with the measured load recorded in `d2.start`, in which case the cost readings are
+descriptive of that load only. The concurrency and the load average at launch are recorded
+either way.
+
+### Hypotheses
+
+- H0, same discrete system, now at dz 250 m and over 24 h: `:fft_tridiag` and `:lu` differ
+  only by round-off in the diffusion solve. Prediction: wherever the flow has not overturned,
+  `rel` of `rho`, `u`, `P` and `T` stays of order 1e-13 to 1e-12 and the absolute `w`
+  difference at about 5e-11 m/s with no trend, so that `rel_w` scales as `1/(U h)` (about
+  2e-8 at most for U20 `h` 0.1 km, half the forcing amplitude of S01F1), the step counts are
+  equal, and window-mean fluxes agree to 1e-7 or better.
+- H1, different discrete system in a configuration Section 1 did not cover (for example a
+  dz 250 m row, a state reached only after 9 h, or a refactorization pattern of the 24 h
+  runs). Prediction: a difference of the size of the operator error times the accumulated
+  diffusion increment, present from the first steps and independent of the flow regime. The
+  unit check bounds it at `rel_incr` 2.9e-11 per step at dz 250 m.
+- H2, round-off amplification by the flow: in a run that overturns, a round-off difference
+  grows with the flow's own sensitivity. Prediction: round-off up to `t_c`, then roughly
+  exponential growth with an e-folding time of order the 0.61 h of S01F3, as any round-off
+  perturbation of the `:lu` run would grow. Compatible with H0.
+- H3, slow secular growth in a non-breaking run: the round-off difference keeps growing over
+  9 to 24 h without an overturning onset. Prediction: in S02F2 the power-law slope of `rel`
+  of `rho`, `u` and `T` over 9 to 24 h is 1 or more, so that `rel_u` reaches about 4e-12 by
+  24 h (1.11e-12 at 6 h grown linearly), against a slope of at most about 0.43 under H0
+  (Section 1 pilot) and about 2e-12 at 24 h. H3 is compatible with production use if the
+  bands hold; it bounds the length of runs over which the equivalence is shown.
+
+### Readings fixed before launch
+
+Each reading is recorded against these statements, and a failed prediction is recorded as
+failed. `rel` of a variable is `max|f_new - f_ref| / max|f_ref|` at a shared snapshot, over
+all cells, for `rho`, `u`, `w`, `P` and `T` separately, with `rel_max` the largest of the
+five; `t_c` is the off member's value in item e; the `MF(30.25)` change is the relative
+change of the window mean read from `s14_suite.json` at full precision; windows are the hour
+rows of `suite` inside the window, and every window lies outside the 2 h ramp. No ratio of
+fluxes is banded; any ratio reported is normalized above 16 km. A value within a factor 2
+of a band edge is reported at the edge, and the reading of the higher band applies. All bands
+are those of Section 1 D-1 and D-2, unchanged.
+
+**D-0, prerequisites, judged before launch.** (i) `check` on the launch hash reproduces the
+reference records with max\|diff\| exactly 0.0; (ii) 0.1 h of the S14S2 command on the launch
+hash reproduces S14S2 with max\|diff\| exactly 0.0; (iii) `dry d2` resolves the nine
+directories above. Met: the set may be launched with the off members as registered. Failed:
+no launch; a failure of (ii) alone adds S02L1, the `:lu` member at dz 250 m, under a dated
+note before launch. Expected: met (item b, item d).
+
+**D-1, non-breaking pairs (S02F1 against S14S2, S02F2 against PR1-U20-h0.1, S02F3 against
+PR1-U57-h0.1).**
+
+| outcome | reading |
+|---|---|
+| at every shared snapshot with `t` at most `t_c` (to the end of S02F1 and S02F2; to 10.69 h in S02F3), `rel` of each of `rho`, `u`, `P`, `T` at most 1e-11 and `rel_w` at most 1e-7, and the relative \|change\| of `MF(30.25)` at most 1e-7 over 6 to 9 h (all three) and over 18 to 24 h (S02F2, S02F3) | consistent with H0: the two solvers give the same solution to round-off on this case, at dz 250 m for S02F1 and over 24 h for S02F2 and S02F3 |
+| any of `rho`, `u`, `P`, `T` in (1e-11, 1e-8], or `rel_w` in (1e-7, 1e-4], or an `MF(30.25)` change in (1e-7, 1e-4], and none above | a departure above the calibrated round-off and below any quoted error bar; reported, and the case is read under the decision rule |
+| any of `rho`, `u`, `P`, `T` above 1e-8, or `rel_w` above 1e-4, or an `MF(30.25)` change above 1e-4 | consistent with H1: the solvers differ on this case |
+
+The 18 to 24 h `MF(30.25)` item of S02F3 lies after its `t_c`. If it alone falls outside row
+1 while the field bands hold to `t_c` and `rel_max` grows after `t_c` (descriptive fit), the
+outcome is recorded as failed for that item and read as H2, not H1.
+
+Second statement: the step counts of each twin and its off member are equal (98 768,
+131 070, 131 079). Reported without a band: `rel` per variable against time over the whole
+run; for S02F3 after 10.69 h, the first times at which `rel_max` exceeds 1e-9 and 1e-6 and
+an e-folding time fitted to any growth; the power-law slope of `rel` of `rho`, `u` and `T`
+over 9 to 24 h in S02F2 and S02F3 (H3); the changes of `MF(1.25)`, `MF(10.25)`, `MF(50.25)`,
+`R10/30` and `R50/30` over both windows; the factorization counts printed by the twins; the
+first-overturning times of the twins (`zoverturn`). Expected: row 1 and the second statement
+met for S02F1 and S02F2, with moderate confidence for S02F1, the first whole run of
+`:fft_tridiag` at dz 250 m. For S02F3, row 1 with moderate confidence for the fields to
+10.69 h and low to moderate confidence for the 18 to 24 h `MF(30.25)` item, which follows a
+near-ground overturning (10.69 h) and one above the critical level (15.75 h). H3 is expected
+not to hold (slope below 1), with low confidence, since Section 1 covered only 9 h.
+
+**D-2, breaking pairs (S02F4 against PR1-U20-h1.0, S02F5 against S15F1, S02F6 against
+PR1-U57-h1.0, S02F7 against PR1-U20-h3.0, S02F8 against PR1-U40-h3.0, S02F9 against S15F2).**
+No `h` = 3 km flux is quoted (Section 14 classification of `reflection_convergence_tests.md`,
+unchanged).
+
+| outcome | reading |
+|---|---|
+| at every shared snapshot with `t` at most `t_c`, `rel` of each of `rho`, `u`, `P`, `T` at most 1e-11 and `rel_w` at most 1e-8, and the `t_c` event of the twin (same band, kind and height) at a time within one scored snapshot (stride 2, about 132 s on both grids) of the off member's | consistent with H0, with H2 for any growth after `t_c`; `:fft_tridiag` gives the same flow as `:lu` up to the first overturning |
+| any of `rho`, `u`, `P`, `T` above 1e-11 or `rel_w` above 1e-8 at some `t` at most `t_c`, or the `t_c` event of the twin absent or more than one scored snapshot away | the solvers differ in this regime (H1), or the flow amplifies round-off before the first overturning; reported with the growth curve |
+
+Reported without a band (descriptive), per pair: `rel` per variable against time over the
+shared snapshots; the first times at which `rel_max` exceeds 1e-9, 1e-6 and 1e-3; an
+e-folding time fitted to the growth after `t_c`, compared with the 0.61 h of S01F3; the first
+step at which the `dt` sequences part; the factorization counts per 1000 steps of the twin;
+every `zoverturn` onset of both runs, and for the `h` = 1 km cases `t_ov` and `dz_L` of both
+runs and the window means of `MF(30.25)` over the off member's pre-collapse window
+(12.34 to 15.34 h for PR1-U20-h1.0, 10.02 to 13.02 h for S15F1, 7.15 to 10.15 h for
+PR1-U57-h1.0, 7.92 to 10.92 h for S15F2) with their relative difference and the hourly range
+of each; for the `h` = 3 km cases the `zh3` crossings and the end of both runs, against the
+H3 table of Section 15; the end time and step count of every twin. S02F9 is compared with
+S15F2 only on the shared snapshots to 11.73 h. Its record after 11.73 h has no off member and
+is reported (end, onsets, hourly `MF(30.25)`) without a reading; using it for a flux or for
+the F-b resolution row of Section 15 needs a separate registration. Expected: row 1 in all
+six pairs, with moderate confidence for S02F8, whose `t_c` (1.90 h) lies inside the ramp,
+and for S02F9 at dz 250 m. After `t_c` the differences are expected to grow (H2), so the
+later onsets, the pre-collapse window means and the collapse times may differ by more than
+one snapshot or by more than round-off; no expectation is registered for their size.
+
+**D-3, cost (no band).** From the run logs, `d2.cost.tsv` and the `d2` rows of
+`docs/run_matrix.csv`: `real` time and s per step of each twin at concurrency 9, with the
+load average at launch; the ratio of each twin's `real` to its off member's `real` (which
+mixes `0f6ff62`, which also speeds up `:lu`, concurrency 9 against 12 and the load, and is
+therefore descriptive of the production gain only); and for S02F9 and S15F2 the wall clock
+per simulated hour over 10.6 to 11.7 h, from the modification times and `time_s` of the
+first snapshots at or after 10.6 h and 11.7 h in each record. Expected: about 0.020 s per step
+at dz 500 m and 0.039 s at dz 250 m on an otherwise idle machine, twin/off member `real`
+ratios of about 0.2 for the 24 h `h` = 0.1 km cases, and about 0.4 h per simulated hour for
+S02F9 in the 10.6 to 11.7 h window against about 15 h for S15F2 (1.5 s per step at about
+0.1 s of `dt`). No band: cost does not decide production use, which rests on D-0 to D-2.
+
+### Decision rule for production use
+
+The `SimConfig` default stays `:lu` in every outcome. What changes is whether new production
+launchers pass `diffsolver=fft`.
+- D-0 met, D-1 row 1 and the second statement met in all three pairs, and D-2 row 1 met in all
+  six pairs: new production sets pass `diffsolver=fft` together with `bcface=1` and `pbar=1`,
+  on both grids and for every `h`. This is implemented as its own `launcher:` commit after a
+  dated note in this section; no existing set changes, and `check` keeps judging the `:lu`
+  default.
+- As above, except that the 18 to 24 h `MF(30.25)` item of S02F3 fails while its fields hold
+  to `t_c` (read as H2): the same adoption. Late-window fluxes from runs that have overturned
+  near the ground then carry the measured S02F3/PR1-U57-h0.1 change as a solver row of the
+  error budget (Section 11 table of `reflection_convergence_tests.md`; rows are not summed).
+- D-1 met in all three pairs and D-2 row 2 in any pair: production passes `diffsolver=fft`
+  for runs with no overturning (the `h` = 0.1 km cases, with S02F3's rule above), and runs
+  that overturn keep `:lu` until the difference is located.
+- D-1 row 2 or 3 in any pair: production keeps `:lu`, and the difference is located before
+  any further use. Variant L of Section 1 is then reconsidered under its own registration.
+- Quoting, in every outcome. Values already quoted from `:lu` records (Section 15 P, F-a to
+  F-c, H3) stay as quoted. A value quoted from a `:fft_tridiag` record names the solver along
+  with the forcing path, `dt` or CFL, `dz`, window and run ID. For a run that overturns, the
+  descriptive D-2 differences after `t_c` (onset times, pre-collapse window means, collapse
+  times) are recorded as a solver row of the error budget, kept separate from the sampling
+  scatter.
+
+### Scoring commands
+
+All read archived output only (`analyze_dt_convergence.py` unless stated), with the products
+written to `output/analysis/s02/`. The run directories of this set are under `output/d2/`;
+`F24` = `output/d2/arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface` and `S24`
+as under Runs. The commands run one after another in one shell, with
+`PY=~/.venvs/magnusp/bin/python`, so that no two processes open a file on the mount at the
+same time (the d1 scoring lost seven commands to `NetCDF: HDF error` when two processes
+opened the same file). A command that still stops with an HDF error is rerun unchanged after
+the previous one has ended, and the incident is recorded.
+- D-1:
+  `bitcheck --relative --new output/d2/arsia_mons_stage2_9h_K0_0.005_LZ95_pbarP_ramp2h_dz250_dfft_bcface/run_U40.0_h0.1 --ref output/arsia_mons_stage2_9h_K0_0.005_LZ95_pbarP_ramp2h_dz250_bcface/run_U40.0_h0.1 --out output/analysis/s02/rel_F1.json`;
+  `bitcheck --relative --new F24/run_U20.0_h0.1 --ref S24/run_U20.0_h0.1 --out output/analysis/s02/rel_F2.json`;
+  `bitcheck --relative --new F24/run_U57.0_h0.1 --ref S24/run_U57.0_h0.1 --out output/analysis/s02/rel_F3.json`;
+  `suite --run S14S2=<off> --run S02F1=<twin> --window 6 9 --pair S14S2:S02F1 --outdir output/analysis/s02/mf_F1_6_9`;
+  `suite --run PR1-U20-h0.1=S24/run_U20.0_h0.1 --run S02F2=F24/run_U20.0_h0.1 --window 6 9 --pair PR1-U20-h0.1:S02F2 --outdir output/analysis/s02/mf_F2_6_9`
+  and the same with `--window 18 24 --outdir output/analysis/s02/mf_F2_18_24`; the same two
+  for S02F3 against PR1-U57-h0.1 (`mf_F3_6_9`, `mf_F3_18_24`); step counts from
+  `grep -h "Simulation complete" output/d2/logs/S02F[123].log` against item d.
+- D-2: `bitcheck --relative --new <twin> --ref <off member> --out output/analysis/s02/rel_F<n>.json`
+  for n = 4 to 9 (pairs as under Runs).
+- Onsets, every twin: `zoverturn --run S02F<n>=<twin> --stride 2 --out output/analysis/s02/zoverturn_F<n>.json`
+  for n = 1 to 9; the off members' values are those of item e. `zh3 --run F24/run_U20.0_h3.0 --stride 2 --out output/analysis/s02/z3_F7.json`
+  and `zh3 --run F24/run_U40.0_h3.0 --stride 2 --out output/analysis/s02/z3_F8.json`,
+  against `output/analysis/s15/z3_face_U20_h3.json` and `z3_face_U40_h3.json`.
+- D-2 descriptive window means: `suite --run PR1-U20-h1.0=S24/run_U20.0_h1.0 --run S02F4=F24/run_U20.0_h1.0 --window 12.34 15.34 --pair PR1-U20-h1.0:S02F4 --outdir output/analysis/s02/pre_F4`;
+  `suite --run S15F1=S24/run_U40.0_h1.0 --run S02F5=F24/run_U40.0_h1.0 --window 10.02 13.02 --pair S15F1:S02F5 --outdir output/analysis/s02/pre_F5`;
+  `suite --run PR1-U57-h1.0=S24/run_U57.0_h1.0 --run S02F6=F24/run_U57.0_h1.0 --window 7.15 10.15 --pair PR1-U57-h1.0:S02F6 --outdir output/analysis/s02/pre_F6`;
+  `suite --run S15F2=<off> --run S02F9=<twin> --window 7.92 10.92 --pair S15F2:S02F9 --outdir output/analysis/s02/pre_F9`.
+- Factorizations: `grep -h "factorizations" output/d2/logs/S02F*.log`.
+- D-3: the `d2` rows of `docs/run_matrix.csv`, `output/d2/logs/d2.cost.tsv` and the logs;
+  for the S02F9/S15F2 window, `stat -f '%m %N'` on the snapshots and `ncdump -h` for their
+  `time_s`.
+- The pre-registration products of items d and e are copied from `~/MAGNUSP_runs/d2/prereg/`
+  to `output/analysis/s02/prereg/` with the archive.
+
+### Code for Section 2
+
+On `dev/fft-production`, stacked on `main` (`52c035a`):
+- `c5e17e2`: `src/io.jl` writes `operator_split`, `enable_viscosity` and `enable_cooling` to
+  the snapshot attributes (Section 1 open item c). No change to the solution.
+- `0f6ff62`: `src/diffusion.jl` preallocates the pack and unpack buffers and restructures
+  the `build_cn_rhs!` loop (item b; Section 1 open item b). Bitwise identical for all three solvers; no switch.
+- `dd3877f`: `run_dt_convergence_S2T95.sh` set `d2` with the nine cases above, run IDs
+  `S02F1` to `S02F9`, stamps `d2.start`, `MAGNUSP_OUTPUT` defaulting to `~/MAGNUSP_runs/d2`
+  and the archive to `output/d2`; `check` is shared and every earlier set keeps its
+  behaviour. `dry d2` (2026-10-20, `~/MAGNUSP_runs/d2/logs/d2.dry.log`) resolved the nine
+  cases to `pbar_mode` pressure, the face ground path, CFL 0.40, the `dz`, `outint` and
+  `t_end` above, and the directories listed under Runs, with the tag order
+  `..._ramp2h_dz250_dfft_bcface` of the driver header.
+
+### Naming
+
+Run IDs use the two-digit section form `S02F<n>` (`F` for `:fft_tridiag`, `n` the case), and
+`S02L1` is reserved for a `:lu` member that D-0 (ii) might require. No ID in
+`docs/run_matrix.csv` or the docs starts with `S02`, and none collides with the legacy `S0`
+to `S2`. The set is `d2`, analysis products go to `output/analysis/s02/`, and the tags are
+`prereg/s02-fft-production` and `run/d2-<YYYYMMDD>`.
+
+### Check before launch
+
+All on commit `dd3877f` (tree clean apart from this uncommitted Section 2 text), driver,
+Queney driver and `src/` hash `1b99274a03cc2a37`, from the worktree with
+`MAGNUSP_OUTPUT=~/MAGNUSP_runs/d2`, `output` a symbolic link to the `output/` of the main
+checkout, Python from `~/.venvs/magnusp`, and the pre-addendum-3 Queney copy taken from
+`~/MAGNUSP_runs/d1/logs/a3_ref` into `~/MAGNUSP_runs/d2/logs/a3_ref`, on 2026-10-20 under
+`caffeinate -s -i` with a load average of about 17 to 18 from other jobs.
+
+D-0 (i), met. `check d2`, 05:35:44 to 05:36:32 (48 s wall, twelve processes): max\|diff\|
+exactly 0.0 in every shared snapshot, 0.1 h of S14G1 (5 snapshots), C2R with `probe=5` (5),
+S04 (6), C2R (5), S14M1 (6), the Queney driver on its default path against its
+pre-addendum-3 copy (2) and S14V1a (5), 34 in all. The Queney face path and the Queney face
+path with `pbar=1` completed, and the Section 16 Strang and alternating paths with Strang
+operators reached `t_end` (487 steps). Summary `~/MAGNUSP_runs/d2/logs/d2.check.out`, logs
+`~/MAGNUSP_runs/d2/logs/S14check_*.log` and `S16check_*.log`; the launch marker
+`~/MAGNUSP_runs/d2/logs/S14.check_ok` holds the hash above.
+
+D-0 (ii), met. 0.1 h of the S14S2 command (05:36:32 to 05:38:21, 1098 steps, 98.5 s solver
+wall clock), against the archived S14S2: max\|diff\| exactly 0.0 in all 6 shared snapshots.
+S14S2 stays the off member of S02F1.
+
+D-0 (iii), met. `dry d2` repeated on `dd3877f` (05:48,
+`~/MAGNUSP_runs/d2/logs/d2.dry.dd3877f.log`) is identical to the earlier `d2.dry.log` and
+resolves the nine directories under Runs.
+
+Further reproductions on the same hash, run together with the S14S2 command (eight
+processes) into `~/MAGNUSP_runs/d2/check_d1/` and compared one at a time with the archives
+(05:47:17 to 05:47:24), each max\|diff\| exactly 0.0 in 6 shared snapshots: 0.1 h of the
+S01F1 (`:fft_tridiag`) and S01R1 (`:lu_reuse`) commands against `output/d1`, the same for
+S01F3 and S01R3 (U57 `h` = 3 km), and 0.1 h of the S15F2 command against S15F2, the off
+member of S02F9. Each of the four `d1` runs printed 2 factorizations, so the refactorization
+path after the first `dt` change is covered. With S14M1 above (`:lu`), the refactored
+`diffusion_step!` of item b reproduces records of all three solvers written by the code
+before it. Descriptive, not a reading: the 0.1 h face-path ridge with `opstrang=1` (the
+diffusion solve called twice per step over dt/2), `:fft_tridiag` against `:lu`, both on the
+new code, gives per-variable `max|diff|` and `rel` equal, number for number (70 of 70 over
+the 5 shared snapshots), to those of the Section 1 merge smoke pair
+(`output/analysis/s01/merge_smoke/rel_opS.json`, `rel_max` 9.46e-10). A new snapshot
+(S01F1 command, step 500) carries `operator_split = "lie"`, `enable_viscosity = 1`,
+`enable_cooling = 0` (32-bit integers, as `step`) and `diffusion_solver = "fft_tridiag"`;
+the Strang ridge snapshots carry `operator_split = "strang"`. Summary
+`~/MAGNUSP_runs/d2/check_d1/bitcheck.out`, run logs `~/MAGNUSP_runs/d2/check_d1/*_0.1h.log`,
+`opS_fft.log`, `opS_lu.log`, and `rel_opS_new.json`.
+
+Any edit to the driver or `src/` before the launch requires a new `check`.
