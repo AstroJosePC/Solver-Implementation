@@ -29,8 +29,14 @@
 # 9 h and S01L3, S01F3, S01R3 at U57 h = 3 km for 5 h, with diffsolver lu, fft and
 # lu_reuse; stamps in d1.start; MAGNUSP_OUTPUT defaults to ~/MAGNUSP_runs/d1 and the
 # archive goes to output/d1, so that S01L1 neither overwrites the local nor the archived
-# S14M1 of the same directory name) for dry, launch, status, archive and monitor;
-# `check` is shared. Logs are named by run ID
+# S14M1 of the same directory name), and `d2` the production twins of
+# docs/diffusion_solver_performance.md Section 2 (S02F1 to S02F9, all with diffsolver=fft
+# and bcface=1: S02F1 at dz = 250 m, U40 h = 0.1 km for 9 h, the fft member of the pair
+# whose lu member is the archived S14S2; S02F2 to S02F8 the 24 h PR1 face-path cases
+# U20 h0.1, U57 h0.1, U20 h1, U40 h1, U57 h1, U20 h3 and U40 h3; S02F9 the 24 h
+# dz = 250 m U40 h = 1 km case of S15F2; stamps in d2.start; MAGNUSP_OUTPUT defaults to
+# ~/MAGNUSP_runs/d2 and the archive goes to output/d2), each for dry, launch, status,
+# archive and monitor; `check` is shared. Logs are named by run ID
 # (case_id): S14<case> for the earlier sets. At launch the set records the git commit,
 # the dirty flag and `git diff` (<stamps>.git.diff), writes a provenance header at the
 # top of each log, and each case appends one row to docs/run_matrix.csv when it ends. `monitor` appends to $LOGS/<stamps>.cost.tsv until every case of
@@ -49,7 +55,7 @@
 set -u
 cd "${S14_REPO:-$(dirname "$0")/..}"
 export OPENBLAS_NUM_THREADS=1
-case "${2:-}" in d1) export MAGNUSP_OUTPUT="${MAGNUSP_OUTPUT:-$HOME/MAGNUSP_runs/d1}" ;; esac
+case "${2:-}" in d1|d2) export MAGNUSP_OUTPUT="${MAGNUSP_OUTPUT:-$HOME/MAGNUSP_runs/$2}" ;; esac
 export MAGNUSP_OUTPUT="${MAGNUSP_OUTPUT:-$HOME/MAGNUSP_runs}"
 DRIVER=scripts/sweep_arsia_mons_stage2.jl
 QUENEY=scripts/run_mountain_benchmark_strict.jl
@@ -70,6 +76,7 @@ CASES="A B C D E F Z"
 [ "$SET" = s16 ] && { CASES="s16S4 s16X4 s16A4 s16L4 s16S3 s16X3 s16A3 s16L3 s16S2 s16X2 s16A2 s16L2 s16S1 s16X1 s16A1 s16L1"
                       STAMPS="$LOGS/S16.start"; }
 [ "$SET" = d1 ] && { CASES="dL1 dF1 dR1 dL3 dF3 dR3"; STAMPS="$LOGS/d1.start"; DEST="$ARCHIVE/d1"; }
+[ "$SET" = d2 ] && { CASES="d2F9 d2F1 d2F5 d2F2 d2F3 d2F4 d2F6 d2F7 d2F8"; STAMPS="$LOGS/d2.start"; DEST="$ARCHIVE/d2"; }
 LIN="linear mode=6 h=0.005 hours=18"
 COMMON="pbar=1 ramp=2 k0=0.005 lz=95"
 PROBE="linear mode=6 h=0.005 hours=1 pbar=1 k0=0.005 lz=95"
@@ -164,6 +171,15 @@ case_args() {
         dL3) echo "hours=5 $COMMON bcface=1 u=57 h=3" ;;
         dF3) echo "hours=5 $COMMON bcface=1 u=57 h=3 diffsolver=fft" ;;
         dR3) echo "hours=5 $COMMON bcface=1 u=57 h=3 diffsolver=lu_reuse" ;;
+        d2F1) echo "hours=9 $COMMON u=40 h=0.1 bcface=1 dz=250 outint=200 diffsolver=fft" ;;
+        d2F2) echo "$PR24 u=20 h=0.1 diffsolver=fft" ;;
+        d2F3) echo "$PR24 u=57 h=0.1 diffsolver=fft" ;;
+        d2F4) echo "$PR24 u=20 h=1 diffsolver=fft" ;;
+        d2F5) echo "$PR24 u=40 h=1 diffsolver=fft" ;;
+        d2F6) echo "$PR24 u=57 h=1 diffsolver=fft" ;;
+        d2F7) echo "$PR24 u=20 h=3 diffsolver=fft" ;;
+        d2F8) echo "$PR24 u=40 h=3 diffsolver=fft" ;;
+        d2F9) echo "$PR24 u=40 h=1 dz=250 outint=200 diffsolver=fft" ;;
         s16*) echo "$SO $(s16_scheme "$1") $(s16_level "$1")" ;;
     esac
 }
@@ -226,6 +242,15 @@ case_dir() {
         dL3) echo "arsia_mons_stage2_5h_K0_0.005_LZ95_pbarP_ramp2h_bcface/run_U57.0_h3.0" ;;
         dF3) echo "arsia_mons_stage2_5h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U57.0_h3.0" ;;
         dR3) echo "arsia_mons_stage2_5h_K0_0.005_LZ95_pbarP_ramp2h_dlureuse_bcface/run_U57.0_h3.0" ;;
+        d2F1) echo "arsia_mons_stage2_9h_K0_0.005_LZ95_pbarP_ramp2h_dz250_dfft_bcface/run_U40.0_h0.1" ;;
+        d2F2) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U20.0_h0.1" ;;
+        d2F3) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U57.0_h0.1" ;;
+        d2F4) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U20.0_h1.0" ;;
+        d2F5) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U40.0_h1.0" ;;
+        d2F6) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U57.0_h1.0" ;;
+        d2F7) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U20.0_h3.0" ;;
+        d2F8) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U40.0_h3.0" ;;
+        d2F9) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dz250_dfft_bcface/run_U40.0_h1.0" ;;
         s16*) echo "arsia_mons_linear2h_LX2000_sig50_K0_0.005_LZ95_pbarP_ramp2h_bcface$(s16_stag "$1")$(s16_ltag "$1")/run_U40.0_h0.03" ;;
     esac
 }
@@ -240,6 +265,7 @@ case_id() {
         h1u*) echo "PR1-U${1#h1u}-h1.0" ;;
         h3u*) echo "PR1-U${1#h3u}-h3.0" ;;
         d[LFR][13]) echo "S01${1#d}" ;;
+        d2F*) echo "S02${1#d2}" ;;
         *) echo "S14$1" ;;
     esac
 }
@@ -340,7 +366,7 @@ launch)
         { echo "run 'check' first (missing or stale $MARKER)"; exit 1; }
     UB="$(ublend_height)"
     run_cases="$CASES"
-    [ "$SET" = g ] || [ "$SET" = a2 ] || [ "$SET" = a3 ] || [ "$SET" = s15 ] || [ "$SET" = d1 ] && UB=n/a
+    [ "$SET" = g ] || [ "$SET" = a2 ] || [ "$SET" = a3 ] || [ "$SET" = s15 ] || [ "$SET" = d1 ] || [ "$SET" = d2 ] && UB=n/a
     if [ -z "$UB" ]; then
         echo "Z5 gate fails at 8, 10 and 12 km: S14E and S14F are withdrawn (Section 14)"
         run_cases="A B C D Z"; UB=none
@@ -406,9 +432,9 @@ archive)
         echo "$(case_id "$c"): $sweep files $n1/$n2, checksum differences $diffs"
         [ "$diffs" -eq 0 ] && [ "$n1" -eq "$n2" ] && rmlist="$rmlist \"$MAGNUSP_OUTPUT/$sweep\""
     done
-    LOGDEST="$ARCHIVE/reflection_tests/logs"; [ "$SET" = d1 ] && LOGDEST="$DEST/logs"
+    LOGDEST="$ARCHIVE/reflection_tests/logs"; [ "$SET" = d1 ] || [ "$SET" = d2 ] && LOGDEST="$DEST/logs"
     mkdir -p "$LOGDEST"
-    if [ "$SET" = s15 ] || [ "$SET" = d1 ]; then
+    if [ "$SET" = s15 ] || [ "$SET" = d1 ] || [ "$SET" = d2 ]; then
         for c in $CASES; do cp "$LOGS/$(case_id "$c").log" "$LOGDEST/"; done
         cp "${STAMPS%.start}".* "$LOGS"/S14check_* "$LOGDEST/"
     else
