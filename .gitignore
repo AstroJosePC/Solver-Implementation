@@ -31,6 +31,7 @@ scripts/*
 !scripts/*.jl
 !scripts/*.py
 !scripts/*.sh
+!scripts/*.mplstyle
 
 # OS-specific files
 .DS_Store

@@ -20,8 +20,12 @@
 # S4 MCD z-then-x; stamps in S14A3.start), and `s15` the cases of Section 15 (S15F1 and
 # S15F2, the h = 1 km dz pair on the face path, S15F1 doubling as PR1-U40-h1.0; the
 # other eight PR1 face-path 24 h production cases; S15T1, the CFL 0.2 twin of
-# PR1-U40-h0.1; S14V3p, the Queney face path with pbar=1; stamps in S15.start) for dry,
-# launch, status, archive and monitor; `check` is shared. Logs are named by run ID
+# PR1-U40-h0.1; S14V3p, the Queney face path with pbar=1; stamps in S15.start), and `s16`
+# the cases of Section 16 (S16<scheme><level>: the 2 h face-path ridge under the Lie
+# splitting L, Strang sweeps and operators S, alternating sweeps with Strang operators A
+# and Strang sweeps with Lie operators X, each at CFL 0.4, 0.2, 0.1 and 0.05 for levels
+# 1 to 4; stamps in S16.start) for dry, launch, status, archive and monitor; `check` is
+# shared. Logs are named by run ID
 # (case_id): S14<case> for the earlier sets. At launch the set records the git commit,
 # the dirty flag and `git diff` (<stamps>.git.diff), writes a provenance header at the
 # top of each log, and each case appends one row to docs/run_matrix.csv when it ends. `monitor` appends to $LOGS/<stamps>.cost.tsv until every case of
@@ -48,7 +52,7 @@ PY="${PYTHON:-python3}"
 LOGS="$MAGNUSP_OUTPUT/logs"
 STAMPS="$LOGS/S14.start"
 MARKER="$LOGS/S14.check_ok"
-ARCHIVE=output
+ARCHIVE="${S14_ARCHIVE:-output}"   # S14_ARCHIVE: the archive of a checkout run from a worktree
 SET="${2:-s14}"
 CASES="A B C D E F Z"
 [ "$SET" = g ] && { CASES="G1 G2 G3"; STAMPS="$LOGS/S14G.start"; }
@@ -56,11 +60,37 @@ CASES="A B C D E F Z"
 [ "$SET" = a3 ] && { CASES="S2 V3g V3f V1b S3F S1 V1a S3E S4 V2m V2u"; STAMPS="$LOGS/S14A3.start"; }
 [ "$SET" = s15 ] && { CASES="F2 T1 F1 h01u20 h01u40 h01u57 h1u20 h1u57 h3u20 h3u40 h3u57 V3p"
                       STAMPS="$LOGS/S15.start"; }
+[ "$SET" = s16 ] && { CASES="s16S4 s16X4 s16A4 s16L4 s16S3 s16X3 s16A3 s16L3 s16S2 s16X2 s16A2 s16L2 s16S1 s16X1 s16A1 s16L1"
+                      STAMPS="$LOGS/S16.start"; }
 LIN="linear mode=6 h=0.005 hours=18"
 COMMON="pbar=1 ramp=2 k0=0.005 lz=95"
 PROBE="linear mode=6 h=0.005 hours=1 pbar=1 k0=0.005 lz=95"
 RIDGE="linear sigma=50 h=0.03 hours=18"
 PR24="hours=24 $COMMON bcface=1"
+SO="linear sigma=50 h=0.03 hours=2 $COMMON bcface=1 final=1"
+
+# Section 16: the scheme (fourth character of the case) and the CFL level (fifth) of
+# an s16 case, as driver arguments and as directory tags.
+s16_scheme() {
+    case "${1:3:1}" in
+        L) echo "" ;; S) echo "strang=1 opstrang=1" ;; A) echo "alt=1 opstrang=1" ;; X) echo "strang=1" ;;
+    esac
+}
+s16_stag() {
+    case "${1:3:1}" in
+        L) echo "" ;; S) echo "_strang_opS" ;; A) echo "_alt_opS" ;; X) echo "_strang" ;;
+    esac
+}
+s16_level() {
+    case "${1:4:1}" in
+        1) echo "" ;; 2) echo "cfl=0.2 outint=200" ;; 3) echo "cfl=0.1 outint=400" ;; 4) echo "cfl=0.05 outint=800" ;;
+    esac
+}
+s16_ltag() {
+    case "${1:4:1}" in
+        1) echo "" ;; 2) echo "_cfl0.2" ;; 3) echo "_cfl0.1" ;; 4) echo "_cfl0.05" ;;
+    esac
+}
 RUN_MATRIX=docs/run_matrix.csv
 QOUT="$MAGNUSP_OUTPUT/mountain_benchmark_strict_10h_dx250"
 mkdir -p "$LOGS"
@@ -120,6 +150,7 @@ case_args() {
         h3u40) echo "$PR24 u=40 h=3" ;;
         h3u57) echo "$PR24 u=57 h=3" ;;
         V3p) echo "--dx=250 --tend_hr=10 --bcface=1 --pbar=1 --outdir=${QOUT}_bcface_pbarP/run_U18_b10" ;;
+        s16*) echo "$SO $(s16_scheme "$1") $(s16_level "$1")" ;;
     esac
 }
 
@@ -175,6 +206,7 @@ case_dir() {
         h3u40) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_bcface/run_U40.0_h3.0" ;;
         h3u57) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_bcface/run_U57.0_h3.0" ;;
         V3p) echo "mountain_benchmark_strict_10h_dx250_bcface_pbarP/run_U18_b10" ;;
+        s16*) echo "arsia_mons_linear2h_LX2000_sig50_K0_0.005_LZ95_pbarP_ramp2h_bcface$(s16_stag "$1")$(s16_ltag "$1")/run_U40.0_h0.03" ;;
     esac
 }
 
@@ -183,6 +215,7 @@ case_id() {
     case "$1" in
         F1|F2|T1) echo "S15$1" ;;
         V3p) echo "S14V3p" ;;
+        s16*) echo "S16${1#s16}" ;;
         h01u*) echo "PR1-U${1#h01u}-h0.1" ;;
         h1u*) echo "PR1-U${1#h1u}-h1.0" ;;
         h3u*) echo "PR1-U${1#h3u}-h3.0" ;;
@@ -234,6 +267,16 @@ check)
     # Section 15: the Queney face path with pbar=1 (S14V3p) must complete on :pressure.
     julia -t 1 --project=. "$QUENEY" --dx=1000 --tend_hr=0.7 --bcface=1 --pbar=1 --outdir="$CK/queney_pbar" \
         > "$LOGS/S14check_queney_pbar.log" 2>&1 &
+    # Section 16: 0.1 h of the face-path ridge S14V1a on the default splitting, and the
+    # Strang and alternating paths with Strang operators, which must reach t_end and
+    # write its snapshot (final=1).
+    mkdir -p "$CK/s16"
+    MAGNUSP_OUTPUT="$CK" julia -t 1 --project=. "$DRIVER" \
+        linear sigma=50 h=0.03 hours=0.1 $COMMON bcface=1 > "$LOGS/S14check_V1a.log" 2>&1 &
+    MAGNUSP_OUTPUT="$CK/s16" julia -t 1 --project=. "$DRIVER" \
+        linear sigma=50 h=0.03 hours=0.1 $COMMON bcface=1 final=1 strang=1 opstrang=1 > "$LOGS/S16check_S.log" 2>&1 &
+    MAGNUSP_OUTPUT="$CK/s16" julia -t 1 --project=. "$DRIVER" \
+        linear sigma=50 h=0.03 hours=0.1 $COMMON bcface=1 final=1 alt=1 opstrang=1 > "$LOGS/S16check_A.log" 2>&1 &
     wait
     ok=1
     "$PY" "$ANALYZE" bitcheck \
@@ -258,6 +301,13 @@ check)
         { echo "Queney face-path run did not complete"; ok=0; }
     [ -f "$CK/queney_pbar/snapshot_0002000.nc" ] && grep -q 'pbar_mode=pressure' "$LOGS/S14check_queney_pbar.log" ||
         { echo "Queney pbar=1 face-path run did not complete"; ok=0; }
+    "$PY" "$ANALYZE" bitcheck \
+        --new "$CK/arsia_mons_linear0.1h_LX2000_sig50_K0_0.005_LZ95_pbarP_ramp2h_bcface/run_U40.0_h0.03" \
+        --ref "$ARCHIVE/arsia_mons_linear18h_LX2000_sig50_K0_0.005_LZ95_pbarP_ramp2h_bcface/run_U40.0_h0.03" || ok=0
+    for s in S A; do
+        grep -q 't=360/360 s steps=[0-9]* OK' "$LOGS/S16check_$s.log" ||
+            { echo "Section 16 scheme $s did not reach t_end"; ok=0; }
+    done
     if [ "$ok" = 1 ]; then
         driver_hash > "$MARKER"; echo "check PASSED (driver hash $(cat "$MARKER"))"
     else

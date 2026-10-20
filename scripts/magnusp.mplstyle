@@ -1,0 +1,44 @@
+# MAGNUS-P figure style (CLAUDE.md, Figures). Load with plt.style.use("scripts/magnusp.mplstyle").
+# Outfit is registered in code from the canvas-design font folder; DejaVu Sans is the fallback.
+# Widths: 3.5 in single column, 7.0 in double column.
+
+font.family:        sans-serif
+font.sans-serif:    Outfit, DejaVu Sans
+font.size:          8.5
+axes.labelsize:     8.5
+axes.titlesize:     9
+xtick.labelsize:    8
+ytick.labelsize:    8
+legend.fontsize:    8
+mathtext.fontset:   stixsans
+
+figure.figsize:     3.5, 2.6
+figure.constrained_layout.use: True
+figure.facecolor:   white
+axes.facecolor:     white
+savefig.dpi:        300
+savefig.facecolor:  white
+pdf.fonttype:       42
+ps.fonttype:        42
+
+axes.edgecolor:     8C857B
+axes.linewidth:     0.6
+axes.labelcolor:    181615
+axes.spines.top:    False
+axes.spines.right:  False
+axes.grid:          False
+axes.prop_cycle:    cycler(color=["C83E2B", "1E4E79", "2E777D", "D97724", "3B3834"])
+
+xtick.color:        5A5550
+ytick.color:        5A5550
+xtick.major.width:  0.6
+ytick.major.width:  0.6
+xtick.major.size:   3
+ytick.major.size:   3
+xtick.direction:    out
+ytick.direction:    out
+
+lines.linewidth:    1.2
+lines.markersize:   4
+image.cmap:         cividis
+legend.frameon:     False
