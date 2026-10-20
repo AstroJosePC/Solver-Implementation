@@ -1016,3 +1016,161 @@ changes nothing else.
   reading for that regime, because the refactorization pattern and the state near `t_c` of
   a dz 250 m overturning run are not compared. The reading of the decision rule records this
   limitation next to its outcome.
+
+### Results
+
+Scored on 2026-10-20 with the registered commands on the archived output, after the
+registration (`bd42b47`, tag `prereg/s02-fft-production`), the note of 2026-10-20 above
+(`df52f0e`) and the launch tag `run/d2-20261020`.
+
+Run record. Set `d2`, launched 2026-10-20 07:03:44 from `df52f0e` (clean tree) in the
+worktree of `dev/fft-production`, driver and `src/` hash `1b99274a03cc2a37`, launcher copy
+`~/MAGNUSP_runs/d2/logs/d2.launcher.sh` (hash `e5b991de0590dccd`), concurrency 8,
+`julia -t 1`, `OPENBLAS_NUM_THREADS=1`, cost monitor holding `caffeinate -s -i`. Load
+average at launch 5.98, 13.73, 15.73 (1, 5, 15 min): a 16-process DSMC spin-up of the
+MarsAtmos queue had ended at 07:02:48, and the launch waited for the 1 min value to fall
+below 7. No other heavy process ran during the batch; a hold job in the shared Task Spooler
+queue kept the next DSMC job waiting until the last case ended. The last case ended
+08:01:41 (0.97 h); no sleep or DarkWake entries in `pmset -g log` over the batch. Mean CPU
+power while all eight ran was 59 W (`d2.cost.tsv`; its `P_use` column reads 0.00 throughout,
+a parsing fault of the monitor, not a reading). Archived 08:02:37 to 08:57:34 to `output/d2/`,
+0 checksum differences and equal file counts in both sweep directories (495 and 6835 files);
+logs, stamps, cost history and launcher copy in `output/d2/logs/`. The local copies are kept;
+the `rm` command is printed in `~/MAGNUSP_runs/d2/logs/d2.archive.log`. The 26 scoring
+commands ran one after another, 08:57:47 to 09:38:49, every one with exit 0 and no HDF error.
+Products in `output/analysis/s02/`; the extracted readings are in
+`output/analysis/s02/readings_d2.json`.
+
+| id | off member | steps (off member) | `t_end` [h] (off member) | mean `dt` [s] | `real` [s] | s per step | factorizations (per 1000 steps) |
+|---|---|---|---|---|---|---|---|
+| S02F1 | S14S2 | 98 768 (98 768) | 9.00 (9.00) | 0.328041 | 3476.99 | 0.0352 | 2 |
+| S02F2 | PR1-U20-h0.1 | 131 070 (131 070) | 24.00 (24.00) | 0.659189 | 2339.65 | 0.0178 | 2 |
+| S02F3 | PR1-U57-h0.1 | 131 079 (131 079) | 24.00 (24.00) | 0.659144 | 2344.11 | 0.0179 | 2 |
+| S02F4 | PR1-U20-h1.0 | 131 223 (131 223) | 24.00 (24.00) | 0.658421 | 2333.88 | 0.0178 | 3 (0.02) |
+| S02F5 | S15F1 | 94 845 (160 044) | 15.35 (23.81) | 0.582695 | 1713.81 | 0.0181 | 5677 (59.9) |
+| S02F6 | PR1-U57-h1.0 | 75 700 (78 071) | 11.91 (11.99) | 0.566580 | 1365.00 | 0.0180 | 4477 (59.1) |
+| S02F7 | PR1-U20-h3.0 | 74 152 (72 106) | 11.49 (11.45) | 0.557832 | 1339.90 | 0.0181 | 4491 (60.6) |
+| S02F8 | PR1-U40-h3.0 | 44 959 (45 200) | 7.01 (7.02) | 0.561354 | 816.09 | 0.0182 | 1921 (42.7) |
+
+**D-0, met.** (i) and (ii) as recorded under Check before launch, on the unchanged hash;
+(iii) `dry d2` on `0caebc7` resolves the eight directories (note of 2026-10-20).
+
+**D-1, row 1 met in all three pairs; second statement met.** Maxima over all shared
+snapshots up to `t_c` (all of S02F1 and S02F2; to 10.69 h in S02F3), with the time of each
+maximum:
+
+| quantity | S02F1 (494 snapshots, dz 250 m) | S02F2 (1311) | S02F3 (585 to `t_c`) | band of row 1 |
+|---|---|---|---|---|
+| max `rel_rho` | 3.30e-13 (1.59 h) | 1.69e-13 (23.60 h) | 1.71e-13 (10.67 h) | at most 1e-11 |
+| max `rel_u` | 1.88e-12 (7.02 h) | 1.20e-12 (22.96 h) | 9.87e-13 (5.42 h) | at most 1e-11 |
+| max `rel_P` | 2.67e-14 (7.45 h) | 1.87e-14 (19.10 h) | 1.72e-14 (1.57 h) | at most 1e-11 |
+| max `rel_T` | 5.71e-13 (8.33 h) | 3.78e-13 (17.74 h) | 3.25e-13 (5.80 h) | at most 1e-11 |
+| max `rel_w` | 2.55e-8 (0.26 h) | 1.38e-8 (0.35 h) | 7.05e-9 (0.35 h) | at most 1e-7 |
+| `MF(30.25)` change, 6 to 9 h | 2.32e-12 | 4.16e-12 | 2.28e-12 | at most 1e-7 |
+| `MF(30.25)` change, 18 to 24 h | | 1.02e-12 | 3.04e-12 | at most 1e-7 |
+
+Every value lies more than a factor 2 below its edge (the closest, `rel_w` of S02F1, by a
+factor 3.9), so the factor 2 rule does not apply. The 18 to 24 h `MF(30.25)` item of S02F3,
+which lies after its `t_c`, is met as well. Step counts are equal in each pair (98 768,
+131 070, 131 079). The data are consistent with H0 on all three cases: the two solvers give
+the same solution to round-off at dz 250 m over 9 h and at dz 500 m over 24 h. As H0
+predicted, `rel_w` peaks during the ramp and falls with the forcing amplitude on the
+dz 500 m column (1.38e-8 at `U h` = 2 km m/s, 7.05e-9 at 5.7), and the absolute `w`
+difference after 1 h stays between 2.4e-11 and 5.7e-11 m/s at dz 500 m and between 4.2e-11
+and 9.6e-11 m/s at dz 250 m, with no trend.
+
+Reported without a band. Window means of `MF(30.25)` [µPa], off member and twin equal to
+the digits shown: S02F1 0.222736 (6 to 9 h, hourly range 0.187 to 0.268), S02F2 0.0586574
+(6 to 9 h) and 0.153513 (18 to 24 h, hourly range 0.133 to 0.173), S02F3 0.499126 (6 to 9 h)
+and 1.57874 (18 to 24 h, hourly range 1.341 to 1.822). The changes of `MF(1.25)`,
+`MF(10.25)`, `MF(50.25)`, `R10/30` and `R50/30` over both windows lie between 3.4e-14 and
+8.7e-12 in magnitude. H3: the 9 to 24 h power-law slopes of `rel` in S02F2 are `rho` 0.52,
+`u` 0.087 and `T` 0.090, below 1, and `rel_u` at 24 h is 1.05e-12, against about 4e-12 under
+H3; H3 is not supported, as expected. The `rho` slope exceeds the 0.43 envelope of the
+Section 1 pilot while `rel_rho` stays between 1.5e-13 and 1.7e-13. In S02F3, after its
+`t_c`, the slopes are 1.37 (`rho`), 1.54 (`u`) and 1.43 (`T`), and `rel_u` reaches 5.35e-12
+at 23.97 h; `rel_max` stays below 2.9e-10 after `t_c`, so no growth is fitted (the fitted
+rate of `ln rel_max` over 10.69 to 24 h is −0.05 per hour, set by the decay of `rel_w`).
+The onsets of the twins equal those of the off members: none in S02F1 and S02F2; in S02F3
+the 0 to 5 km convective onset at 10.6929 h (1.0 km) and the 45 to 55 km one at 15.7464 h
+(54.5 km). Snapshot times differ from step 300 (S02F1 from step 400) by at most 1.8e-10 s,
+a round-off difference of the CFL `dt`.
+
+**D-2, row 1 met in all five pairs.** Up to `t_c` the largest `rel` of `rho`, `u`, `P`, `T`
+over the five pairs is 8.95e-13 (`u`, S02F4, 3.61 h), against 1e-11; the largest `rel_w`
+is 2.33e-9 (S02F4, 0.35 h), against 1e-8. The `t_c` event of every twin is the off member's
+event, a convective onset in 0 to 5 km at 1.0 km, at the same snapshot (time differences
+1e-15 to 2e-14 h, against one scored snapshot of about 132 s).
+
+| pair | snapshots to `t_c` | `t_c` [h] | max thermo `rel` to `t_c` | max `rel_w` to `t_c` | `rel_max` first above 1e-6, 1e-3 [h] | e-folding time after `t_c` [h] |
+|---|---|---|---|---|---|---|
+| S02F4 / PR1-U20-h1.0 | 251 | 4.5769 | 8.95e-13 | 2.33e-9 | 19.83, not reached | 1.21 |
+| S02F5 / S15F1 | 175 | 3.1850 | 7.47e-13 | 1.16e-9 | 11.13, 12.84 | 0.57 |
+| S02F6 / PR1-U57-h1.0 | 147 | 2.6721 | 5.98e-13 | 8.77e-10 | 9.08, 10.74 | 0.45 |
+| S02F7 / PR1-U20-h3.0 | 145 | 2.6355 | 6.77e-13 | 8.33e-10 | 8.99, 10.36 | 0.45 |
+| S02F8 / PR1-U40-h3.0 | 105 | 1.9026 | 4.71e-13 | 4.36e-10 | 6.40, 6.98 | 0.33 |
+
+The data are consistent with H0 up to the first overturning in every breaking pair: the
+two solvers give the same flow to round-off up to `t_c`, for `h` = 1 km and `h` = 3 km.
+
+Reported without a band (descriptive). The e-folding times are fitted to `ln rel_max` from
+`t_c` to the first time `rel_max` exceeds 1e-3 (or the last shared snapshot), and bracket
+the 0.61 h of S01F3 (0.33 to 1.21 h). `rel_max` first exceeds 1e-9 during the ramp in
+S02F4 and S02F5 (0.22 h and 0.31 h, `rel_w` only) and at 5.10 to 6.99 h in the others.
+Every later onset of every twin is the off member's, same band, kind and height, within
+3.6e-6 h (13 ms), except one: the first wind reversal in 20 to 45 km of S02F5 at 14.1083 h
+against 14.1369 h (44.25 km in both), 103 s earlier, inside one scored snapshot and after
+`rel_max` passed 1e-3. The first free-column onsets `t_ov` and `dz_L` (from the `zoverturn`
+reports) are equal in each `h` = 1 km pair: 15.3367 h and −6.25 km (S02F4), 13.0174 h and
++6.75 km (S02F5), 10.1512 h and +9.75 km (S02F6). The `zh3` crossings of the `h` = 3 km
+twins equal those of `output/analysis/s15/z3_face_U*_h3.json` to about 1e-12 h: ground
+`|T/T_0 - 1| > 0.5` at 5.2699 h (U20) and 3.4018 h (U40), top `|w| > 5` m/s at 8.7439 h and
+5.0785 h, free-column instability above 1 % at 8.5172 h and 6.1274 h. Pre-collapse window
+means of `MF(30.25)` [µPa], off member and twin, with the relative change and the hourly
+range of the off member: S02F4 35.1961 and 35.1961 (12.34 to 15.34 h, −1.96e-11, 18.2 to
+52.4); S02F5 50.9989 and 51.0002 (10.02 to 13.02 h, 2.55e-5, 27.5 to 86.8); S02F6 79.9813
+and 79.9813 (7.15 to 10.15 h, 2.13e-8, 50.0 to 127.3). Each change is at least 1e4 times
+smaller than the relative hourly range. The ends of the runs: S02F6, S02F7 and S02F8 end at
+11.91, 11.49 and 7.01 h against 11.99, 11.45 and 7.02 h, and S02F5 ends at 15.35 h against
+23.81 h for S15F1, after `rel_max` passed 1e-3 at 12.84 h. S02F4 ran 24 h with the off
+member's step count and stays below 1e-6 to 19.8 h, although it overturns near the ground
+at 4.58 h. The growth after `t_c`, and the different end of S02F5, are consistent with H2,
+round-off amplification by the overturning flow, which any perturbation of the `:lu` run
+would also show; they are not by themselves evidence on the solver. The snapshot times
+first differ at step 300 in every pair, as in Section 1.
+
+**D-3, cost (no band).** At concurrency 8 on an otherwise idle machine, the twins ran at
+0.0178 to 0.0182 s per step on the dz 500 m column and 0.0352 s on dz 250 m, against the
+estimates 0.020 and 0.039. The cost per step is the same in breaking and non-breaking runs:
+the breaking twins refactorized 43 to 61 times per 1000 steps at no visible cost, where their
+`:lu` off members ran at 0.143 to 0.165 s per step against 0.103 for the non-breaking ones.
+
+| pair | twin / off member, `real` | twin / off member, s per step |
+|---|---|---|
+| S02F1 / S14S2 (dz 250 m, 9 h) | 0.190 | 0.190 |
+| S02F2 / PR1-U20-h0.1 | 0.174 | 0.174 |
+| S02F3 / PR1-U57-h0.1 | 0.172 | 0.172 |
+| S02F4 / PR1-U20-h1.0 | 0.172 | 0.172 |
+| S02F5 / S15F1 | 0.072 | 0.121 |
+| S02F6 / PR1-U57-h1.0 | 0.106 | 0.110 |
+| S02F7 / PR1-U20-h3.0 | 0.130 | 0.127 |
+| S02F8 / PR1-U40-h3.0 | 0.124 | 0.124 |
+
+The ratios mix three changes and are descriptive of the production gain only: the solver,
+the pack refactor `0f6ff62` (which also speeds up `:lu`), and concurrency 8 on an idle
+machine against 11 or 12 for the off members. The expected `real` ratio of about 0.2 for the
+24 h `h` = 0.1 km cases is met at 0.17. The eight twins used 4.4 h of CPU in all, against
+31.3 h of `real` for their off members. The S02F9 item is not scored (note of 2026-10-20).
+
+**Decision rule.** D-0 met, D-1 row 1 and the second statement met in all three pairs, and
+D-2 row 1 met in all five pairs: the first case of the rule applies. New production sets
+pass `diffsolver=fft` together with `bcface=1` and `pbar=1`. The `SimConfig` default stays
+`:lu`, no existing set changes, and `check` keeps judging the `:lu` default. Limitation, as
+recorded in the note of 2026-10-20: on the dz 250 m grid this rests on S02F1 alone, which
+does not overturn. For dz 250 m runs that overturn, no full-run pair compares the two
+solvers, and a value quoted from such a run carries this as a solver row of the error budget
+until a registered pair covers it. Quoting: a value from a `:fft_tridiag` record names the
+solver along with the forcing path, `dt` or CFL, `dz`, window and run ID; the descriptive
+D-2 differences after `t_c` (the S02F5 end time and its 2.55e-5 window-mean change) are the
+solver row of the error budget for runs that overturn, kept separate from the sampling
+scatter.
