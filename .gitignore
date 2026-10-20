@@ -15,6 +15,7 @@ docs/*
 !docs/arsia_stage1_U57_h3_deep_dive.md
 !docs/TODO_tracker.md
 !docs/run_matrix.csv
+!docs/diffusion_solver_performance.md
 conductor/
 GEMINI.md
 
