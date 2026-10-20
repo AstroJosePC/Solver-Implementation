@@ -658,6 +658,19 @@
         registration); (b) the shared pack/unpack in diffusion_step! (~93 % of the remaining
         fft step); (c) src/io.jl does not write operator_split to the snapshot attributes;
         (d) dev/blog-ghost-cell-figures is not merged.
+        Update 2026-10-20 (Section 1 follow-ups, branch dev/fft-production): (b) closed by
+        0f6ff62 (preallocated pack/unpack buffers and typed kernels, no switch;
+        diffusion_step! 0.0710 -> 0.0250 s :lu and 0.0529 -> 0.0040 s :fft_tridiag per call
+        at dz 500 m; bitwise 0.0 against output/d1 for all three solvers). (c) closed by
+        c5e17e2 (snapshot attributes operator_split, enable_viscosity, enable_cooling;
+        face_probe.nc operator_split). Both recorded in the dated note at the end of
+        Section 1 Results (a17e6a7). (a) registered as Section 2 of
+        diffusion_solver_performance.md (bd42b47, tag prereg/s02-fft-production; set d2,
+        nine :fft_tridiag twins S02F1 to S02F9; check on dd3877f, hash 1b99274a03cc2a37,
+        34 snapshots at 0.0, S14S2 0.1 h at 0.0); NOT launched, the SimConfig default stays
+        :lu. (d) dev/blog-ghost-cell-figures left unmerged by decision. OPEN: launch and
+        score d2 (load average was about 17 to 18 on 2026-10-20; Section 2 asks for below
+        about 7 or the load recorded in d2.start).
     (g) Which N does each downstream quantity use? Opened 2026-09-01. N_REF = 0.018 s^-1 is
         the near-surface inversion value (N = 0.01763 at z = 0.25 km), not a lower-atmosphere
         mean; over 10-55 km in this column N is 0.0078-0.0097 with a mean of 0.00849, a
