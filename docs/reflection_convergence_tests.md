@@ -5267,3 +5267,41 @@ alternates its sweeps without `opstrang=1` was not run, and should cost about wh
   cause is now identified, and `alt=1` stays available behind its switch.
 - Adopting `alt=1` for new runs needs the phase test above. On this case it would change the
   flux by about 0.02 %.
+
+### Figures added 2026-10-19 (descriptive)
+
+Not readings of record. Drawn by `scripts/plot_splitting_order.py all` (commit `e532bc3`) from
+NPZ caches in `output/analysis/s16/` (`S16_lsdiff_xz.npz`, `S16_order_courant.npz`,
+`S16_ground2dz_xz.npz`), written by its `extract` stage from runs S16{L,S,A}{1..4} at
+`t_end` = 7 200 s. Style is `scripts/magnusp.mplstyle`. Figures, PDFs and sidecars are in
+`docs/figures/` of the main checkout, and the design notes are in
+`docs/splitting_order_design_philosophy.md`. All runs use the face path (`bcface=1`), dz =
+500 m and dx = 4 km. The extract stage reproduces `E_LS` from `s16.json` to every printed
+digit, the t_end `q_AS` (1.78, 1.67, 0.87), the `lw1d` orders (1.85, 1.61, 1.29, 1.10) and the
+`mfprof` 2 dz amplitudes at 10.25 km (4.0e-5 to 2.9e-3 m/s).
+
+- `fig_s16_ls_difference_fields`: filtered `w'_L - w'_S` times `2^(l-1)` at CFL 0.4, 0.2, 0.1
+  and 0.05 on one colour scale (x within 400 km of the ridge, z 0 to 35 km). The four panels
+  are the same picture to the eye, which is the 16-a reading (`q_LS` 0.97, 0.96, 1.00) shown
+  as a field. The difference lies along the flanks of the wave crests, which is consistent
+  with a small phase shift of the resolved wave rather than a separate structure.
+- `fig_s16_order_vs_courant`: `q` per halving against the measured x-sweep Courant number
+  `nu_x = max(|u| + c) dt/dx`, which is exactly CFL/8 here (0.050, 0.025, 0.0125, 0.0063),
+  because `compute_adaptive_dt` limits `dt` with `min(dx, dz)` = dz. The w' field is carried
+  in x at U, at `U dt/dx` = 0.0075 to 0.0009. `q_LS` stays at 1.00 at every even-step snapshot.
+  `q_AS` at the even-step snapshots (1.56, 1.36, 1.20 at t = 7 182 s) follows the relative
+  least-squares fit `E_AS = 1.10e-4 r + 1.80e-4 r^2` (residuals below 1 %; the Results above
+  quote 1.13e-4 and 1.63e-4 from a fit within 6 %). The 1-D test, re-run on the ridge's
+  `dh/dx` profile (sigma = 12.5 cells) over `nu` = 0.4 to 0.0016, gives 1.91 down to 1.00
+  and is already at 1.15 to 1.00 where the 2-D points lie. So at matched Courant number the
+  1-D half-step mechanism accounts for the first-order limit of A - S, but not for where A - S
+  leaves second order. That point is set by the ratio a/b, and the second-order part b
+  includes the splitting difference between A and S. The 2-D and 1-D curves are drawn apart
+  on purpose. This qualifies the "same slide" wording of the 1-D check above: the slide has
+  the same form, but it is not at the same Courant number.
+- `fig_s16_ground_2dz_layer`: `w' - [1, 2, 1] w'/4` for the L scheme at CFL 0.4 and 0.05 on
+  one colour scale (z 0 to 20 km). At CFL 0.4 the 2 dz part is confined below about 2 km. At
+  CFL 0.05 it fills the column above 10 km, with alternating sign over the ridge and in the
+  lee. The decay length `dz^2/(2 c dt)` uses the measured mean sound speed of the lowest row,
+  216.9 m/s, and gives 0.78, 1.56, 3.11 and 6.23 km. The 0.74 and 5.9 km quoted earlier in this
+  section correspond to a sound speed about 5 % higher.
