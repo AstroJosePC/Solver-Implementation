@@ -20,7 +20,12 @@
 # S4 MCD z-then-x; stamps in S14A3.start), and `s15` the cases of Section 15 (S15F1 and
 # S15F2, the h = 1 km dz pair on the face path, S15F1 doubling as PR1-U40-h1.0; the
 # other eight PR1 face-path 24 h production cases; S15T1, the CFL 0.2 twin of
-# PR1-U40-h0.1; S14V3p, the Queney face path with pbar=1; stamps in S15.start) for dry,
+# PR1-U40-h0.1; S14V3p, the Queney face path with pbar=1; stamps in S15.start), and `d1`
+# the diffusion-solver pair of docs/diffusion_solver_performance.md Section 1 (S01L1,
+# S01F1, S01R1 at h = 0.1 km for 9 h and S01L3, S01F3, S01R3 at U57 h = 3 km for 5 h, with
+# diffsolver lu, fft and lu_reuse; stamps in d1.start; MAGNUSP_OUTPUT defaults to
+# ~/MAGNUSP_runs/d1 and the archive goes to output/d1, so that S01L1 neither overwrites
+# the local nor the archived S14M1 of the same directory name) for dry,
 # launch, status, archive and monitor; `check` is shared. Logs are named by run ID
 # (case_id): S14<case> for the earlier sets. At launch the set records the git commit,
 # the dirty flag and `git diff` (<stamps>.git.diff), writes a provenance header at the
@@ -40,6 +45,7 @@
 set -u
 cd "${S14_REPO:-$(dirname "$0")/..}"
 export OPENBLAS_NUM_THREADS=1
+case "${2:-}" in d1) export MAGNUSP_OUTPUT="${MAGNUSP_OUTPUT:-$HOME/MAGNUSP_runs/d1}" ;; esac
 export MAGNUSP_OUTPUT="${MAGNUSP_OUTPUT:-$HOME/MAGNUSP_runs}"
 DRIVER=scripts/sweep_arsia_mons_stage2.jl
 QUENEY=scripts/run_mountain_benchmark_strict.jl
@@ -49,6 +55,7 @@ LOGS="$MAGNUSP_OUTPUT/logs"
 STAMPS="$LOGS/S14.start"
 MARKER="$LOGS/S14.check_ok"
 ARCHIVE=output
+DEST="$ARCHIVE"          # archive destination of the set; check references stay in $ARCHIVE
 SET="${2:-s14}"
 CASES="A B C D E F Z"
 [ "$SET" = g ] && { CASES="G1 G2 G3"; STAMPS="$LOGS/S14G.start"; }
@@ -56,6 +63,7 @@ CASES="A B C D E F Z"
 [ "$SET" = a3 ] && { CASES="S2 V3g V3f V1b S3F S1 V1a S3E S4 V2m V2u"; STAMPS="$LOGS/S14A3.start"; }
 [ "$SET" = s15 ] && { CASES="F2 T1 F1 h01u20 h01u40 h01u57 h1u20 h1u57 h3u20 h3u40 h3u57 V3p"
                       STAMPS="$LOGS/S15.start"; }
+[ "$SET" = d1 ] && { CASES="dL1 dF1 dR1 dL3 dF3 dR3"; STAMPS="$LOGS/d1.start"; DEST="$ARCHIVE/d1"; }
 LIN="linear mode=6 h=0.005 hours=18"
 COMMON="pbar=1 ramp=2 k0=0.005 lz=95"
 PROBE="linear mode=6 h=0.005 hours=1 pbar=1 k0=0.005 lz=95"
@@ -120,6 +128,12 @@ case_args() {
         h3u40) echo "$PR24 u=40 h=3" ;;
         h3u57) echo "$PR24 u=57 h=3" ;;
         V3p) echo "--dx=250 --tend_hr=10 --bcface=1 --pbar=1 --outdir=${QOUT}_bcface_pbarP/run_U18_b10" ;;
+        dL1) echo "hours=9 $COMMON u=40 h=0.1 bcface=1" ;;
+        dF1) echo "hours=9 $COMMON u=40 h=0.1 bcface=1 diffsolver=fft" ;;
+        dR1) echo "hours=9 $COMMON u=40 h=0.1 bcface=1 diffsolver=lu_reuse" ;;
+        dL3) echo "hours=5 $COMMON bcface=1 u=57 h=3" ;;
+        dF3) echo "hours=5 $COMMON bcface=1 u=57 h=3 diffsolver=fft" ;;
+        dR3) echo "hours=5 $COMMON bcface=1 u=57 h=3 diffsolver=lu_reuse" ;;
     esac
 }
 
@@ -175,6 +189,12 @@ case_dir() {
         h3u40) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_bcface/run_U40.0_h3.0" ;;
         h3u57) echo "arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_bcface/run_U57.0_h3.0" ;;
         V3p) echo "mountain_benchmark_strict_10h_dx250_bcface_pbarP/run_U18_b10" ;;
+        dL1) echo "arsia_mons_stage2_9h_K0_0.005_LZ95_pbarP_ramp2h_bcface/run_U40.0_h0.1" ;;
+        dF1) echo "arsia_mons_stage2_9h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U40.0_h0.1" ;;
+        dR1) echo "arsia_mons_stage2_9h_K0_0.005_LZ95_pbarP_ramp2h_dlureuse_bcface/run_U40.0_h0.1" ;;
+        dL3) echo "arsia_mons_stage2_5h_K0_0.005_LZ95_pbarP_ramp2h_bcface/run_U57.0_h3.0" ;;
+        dF3) echo "arsia_mons_stage2_5h_K0_0.005_LZ95_pbarP_ramp2h_dfft_bcface/run_U57.0_h3.0" ;;
+        dR3) echo "arsia_mons_stage2_5h_K0_0.005_LZ95_pbarP_ramp2h_dlureuse_bcface/run_U57.0_h3.0" ;;
     esac
 }
 
@@ -186,6 +206,7 @@ case_id() {
         h01u*) echo "PR1-U${1#h01u}-h0.1" ;;
         h1u*) echo "PR1-U${1#h1u}-h1.0" ;;
         h3u*) echo "PR1-U${1#h3u}-h3.0" ;;
+        d[LFR][13]) echo "S01${1#d}" ;;
         *) echo "S14$1" ;;
     esac
 }
@@ -269,7 +290,7 @@ launch)
         { echo "run 'check' first (missing or stale $MARKER)"; exit 1; }
     UB="$(ublend_height)"
     run_cases="$CASES"
-    [ "$SET" = g ] || [ "$SET" = a2 ] || [ "$SET" = a3 ] || [ "$SET" = s15 ] && UB=n/a
+    [ "$SET" = g ] || [ "$SET" = a2 ] || [ "$SET" = a3 ] || [ "$SET" = s15 ] || [ "$SET" = d1 ] && UB=n/a
     if [ -z "$UB" ]; then
         echo "Z5 gate fails at 8, 10 and 12 km: S14E and S14F are withdrawn (Section 14)"
         run_cases="A B C D Z"; UB=none
@@ -291,7 +312,7 @@ launch)
                 echo "# command: OPENBLAS_NUM_THREADS=$OPENBLAS_NUM_THREADS $cmd"
                 echo "# git $GIT_COMMIT ($GIT_DIRTY; diff in ${STAMPS%.start}.git.diff) | driver+src hash $DH | launcher $LH ($0)"
                 echo "# julia threads 1 | BLAS threads $OPENBLAS_NUM_THREADS | concurrency $NCONC cases"
-                echo "# local $MAGNUSP_OUTPUT/$(case_dir "$c") | archive $ARCHIVE/$(case_dir "$c")"
+                echo "# local $MAGNUSP_OUTPUT/$(case_dir "$c") | archive $DEST/$(case_dir "$c")"
             } > "$log"
             # shellcheck disable=SC2046
             /usr/bin/time -p julia -t 1 --project=. "$(case_driver "$c")" $(case_args "$c") >> "$log" 2>&1
@@ -301,7 +322,7 @@ launch)
             read -r steps tend <<< "$(sed -nE 's/^Simulation complete: ([0-9]+) steps, t=([0-9.]+) s.*/\1 \2/p' "$log" | tail -1)"
             mdt=$( [ -n "${steps:-}" ] && echo "scale=6; $tend / $steps" | bc || echo NA)
             sps=$( [ -n "${steps:-}" ] && [ -n "$real" ] && echo "scale=4; $real / $steps" | bc || echo NA)
-            echo "$id,$SET,$(date -r "$s" '+%F %T'),$(date -r "$e" '+%F %T'),$rc,${real:-NA},${steps:-NA},${tend:-NA},$mdt,$sps,$NCONC,$GIT_COMMIT,$GIT_DIRTY,$DH,$LH,\"$cmd\",$MAGNUSP_OUTPUT/$(case_dir "$c"),$ARCHIVE/$(case_dir "$c")" >> "$RUN_MATRIX"
+            echo "$id,$SET,$(date -r "$s" '+%F %T'),$(date -r "$e" '+%F %T'),$rc,${real:-NA},${steps:-NA},${tend:-NA},$mdt,$sps,$NCONC,$GIT_COMMIT,$GIT_DIRTY,$DH,$LH,\"$cmd\",$MAGNUSP_OUTPUT/$(case_dir "$c"),$DEST/$(case_dir "$c")" >> "$RUN_MATRIX"
         ) &
         sleep 2
     done
@@ -328,20 +349,22 @@ archive)
         case "$done_sweeps" in *" $sweep "*) continue ;; esac   # cases that share a sweep
         done_sweeps="$done_sweeps$sweep "
         [ -d "$MAGNUSP_OUTPUT/$sweep" ] || { echo "$(case_id "$c"): $sweep not found"; continue; }
-        rsync -a "$MAGNUSP_OUTPUT/$sweep" "$ARCHIVE/"
-        diffs=$(rsync -a --dry-run --checksum --itemize-changes "$MAGNUSP_OUTPUT/$sweep/" "$ARCHIVE/$sweep/" | wc -l)
-        n1=$(find "$MAGNUSP_OUTPUT/$sweep" -type f | wc -l); n2=$(find "$ARCHIVE/$sweep" -type f | wc -l)
+        mkdir -p "$DEST"
+        rsync -a "$MAGNUSP_OUTPUT/$sweep" "$DEST/"
+        diffs=$(rsync -a --dry-run --checksum --itemize-changes "$MAGNUSP_OUTPUT/$sweep/" "$DEST/$sweep/" | wc -l)
+        n1=$(find "$MAGNUSP_OUTPUT/$sweep" -type f | wc -l); n2=$(find "$DEST/$sweep" -type f | wc -l)
         echo "$(case_id "$c"): $sweep files $n1/$n2, checksum differences $diffs"
         [ "$diffs" -eq 0 ] && [ "$n1" -eq "$n2" ] && rmlist="$rmlist \"$MAGNUSP_OUTPUT/$sweep\""
     done
-    mkdir -p "$ARCHIVE/reflection_tests/logs"
-    if [ "$SET" = s15 ]; then
-        for c in $CASES; do cp "$LOGS/$(case_id "$c").log" "$ARCHIVE/reflection_tests/logs/"; done
-        cp "${STAMPS%.start}".* "$LOGS"/S14check_* "$ARCHIVE/reflection_tests/logs/"
+    LOGDEST="$ARCHIVE/reflection_tests/logs"; [ "$SET" = d1 ] && LOGDEST="$DEST/logs"
+    mkdir -p "$LOGDEST"
+    if [ "$SET" = s15 ] || [ "$SET" = d1 ]; then
+        for c in $CASES; do cp "$LOGS/$(case_id "$c").log" "$LOGDEST/"; done
+        cp "${STAMPS%.start}".* "$LOGS"/S14check_* "$LOGDEST/"
     else
-        cp "$LOGS"/S14* "$ARCHIVE/reflection_tests/logs/"
+        cp "$LOGS"/S14* "$LOGDEST/"
     fi
-    echo "logs copied to $ARCHIVE/reflection_tests/logs/"
+    echo "logs copied to $LOGDEST/"
     [ -n "$rmlist" ] && echo "verified; remove the local copies with:" && echo "rm -rf$rmlist"
     ;;
 monitor)
