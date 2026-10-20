@@ -405,3 +405,115 @@ Sections of this doc are numbered within it and cited as `diffusion_solver_perfo
 forbids IDs that start with `S` plus a single digit; analysis products go to
 `output/analysis/s01/` and the tags are `prereg/s01-diffusion-solver` and
 `run/d1-<YYYYMMDD>`.
+
+### Results
+
+Scored on 2026-10-20 with the registered commands on the archived output, after the
+registration (`93a716a`, tag `prereg/s01-diffusion-solver`, 00:14:32) and the launch tag
+`run/d1-20261020`.
+
+Run record. Set `d1`, launched 2026-10-20 00:14:42 from `93a716a` (clean tree), driver and
+`src/` hash `6345878dbd21bf05`, launcher copy `~/MAGNUSP_runs/d1/logs/d1.launcher.sh`
+(hash `23449f8fc0f9248c`), concurrency 6, `julia -t 1`, `OPENBLAS_NUM_THREADS=1`, cost
+monitor holding `caffeinate -s -i`. Last case ended 01:39:40 (1.42 h); no sleep or DarkWake
+entries in `pmset -g log` over the batch. Archived 01:40:00 to 01:56:29 to `output/d1/`, 0
+checksum differences and equal file counts in all six sweep directories; logs, stamps,
+cost history and launcher copy in `output/d1/logs/`. The local copies are kept; the `rm`
+command is printed in `~/MAGNUSP_runs/d1/logs/d1.archive.log`. Products in
+`output/analysis/s01/`.
+
+| id | solver | steps | `t_end` [s] | mean `dt` [s] | `real` [s] | s per step | factorizations |
+|---|---|---|---|---|---|---|---|
+| S01L1 | `:lu` | 49 153 | 32 400 | 0.659166 | 4758.78 | 0.0968 | not printed (default path) |
+| S01F1 | `:fft_tridiag` | 49 153 | 32 400 | 0.659166 | 3718.07 | 0.0756 | 2 |
+| S01R1 | `:lu_reuse` | 49 153 | 32 400 | 0.659166 | 5093.67 | 0.1036 | 2 |
+| S01L3 | `:lu` | 29 545 | 18 000 | 0.609240 | 3386.70 | 0.1146 | not printed (default path) |
+| S01F3 | `:fft_tridiag` | 29 545 | 18 000 | 0.609240 | 2257.14 | 0.0763 | 400 |
+| S01R3 | `:lu_reuse` | 29 545 | 18 000 | 0.609240 | 3256.94 | 0.1102 | 400 |
+
+Note on the scoring run. The ten scoring commands were first started concurrently; seven
+of them stopped at the opening of a snapshot on the mount with `NetCDF: HDF error`, at
+files that two processes were opening at the same time. The same files opened without
+error one at a time, and their checksums matched the local copies. The seven commands were
+rerun unchanged, one after another (01:58:49 to 02:02:59), and every reading below comes
+from a command that completed. No command or argument was altered.
+
+**D-0, met.** S01L1 against the archived S14M1: 492 shared snapshots to 9 h, max\|diff\|
+exactly 0.0. S01L3 against the archived PR1-U57-h3.0: 296 shared snapshots to 5 h,
+max\|diff\| exactly 0.0. The default path of the merged code reproduces the earlier records
+over the full segments.
+
+**D-1, row 1 met; second statement met.** S01F1 against S01L1, 492 shared snapshots to
+32 365 s.
+
+| quantity | value | band of row 1 |
+|---|---|---|
+| max `rel_rho` | 1.39e-13 (1.54 h) | at most 1e-11 |
+| max `rel_u` | 1.11e-12 (6.04 h) | at most 1e-11 |
+| max `rel_P` | 1.72e-14 (3.53 h) | at most 1e-11 |
+| max `rel_T` | 2.71e-13 (5.88 h) | at most 1e-11 |
+| max `rel_w` | 9.96e-9 (0.35 h) | at most 1e-7 |
+| relative change of the 6 to 9 h `MF(30.25)` | −2.55e-12 | at most 1e-7 |
+
+Every value lies more than a factor 2 below its edge, so the factor 2 rule does not apply.
+The factorization counts of S01F1 and S01R1 are equal (2 and 2), and the step counts of
+S01F1 and S01L1 are equal (49 153). Reported without a band: the changes over 6 to 9 h
+of `MF(1.25)` −2.7e-12, `MF(10.25)` 5.3e-12, `MF(50.25)` 4.7e-13, `R10/30` 7.8e-12 and
+`R50/30` 3.0e-12 (relative). `rel_w` reaches its maximum during the ramp, at the same
+snapshot and value as in the calibration pilot, then falls to 3.9e-9 at 1 h, 1.0e-9 at
+4 h and 4.1e-10 at 9 h; the absolute `w` difference stays between 2.7e-11 and 5.3e-11 m/s
+after 1 h, with no trend. The snapshot times of the two runs differ from step 300 on, by at
+most 1.8e-11 s, a round-off difference of the CFL `dt`. The first hour of S01L1 and S01F1 is
+bit for bit that of the pilot runs of the same solver (55 snapshots each, max\|diff\|
+0.0). The reading of row 1 is that the data are consistent with H0 over 9 h on this
+column: the two solvers give the same solution to round-off.
+
+**D-2, row 1 met.** S01F3 against S01L3, 296 shared snapshots to 5 h. Up to 2 h: max
+`rel_rho` 3.96e-13, `rel_u` 5.03e-13, `rel_P` 2.77e-14, `rel_T` 2.72e-13 (all at most 1e-11)
+and `rel_w` 2.98e-10 (0.26 h; at most 1e-8). The `zh3` crossing times agree: ground
+`|T/T_0 - 1| > 0.5` at 2.5232375 h in both runs, top `|w| > 5` m/s at 4.3646013 h in both
+(differences of order 1e-12 h, far below one scored snapshot); no free-column crossing
+inside 5 h in either run, as expected. The 4.36 h crossing, registered with low confidence,
+is met. Reported without a band (descriptive): `rel_max` first exceeds 1e-9 at 4.65 h and
+does not reach 1e-6 inside 5 h; its maximum is 3.25e-9 (`w`, 4.75 h), with `rel_u` 1.1e-9,
+`rel_T` 6.8e-10, `rel_rho` 2.2e-10 and `rel_P` 5.2e-11 at their maxima, all after 4.6 h. A
+fit of `ln rel_max` over 2 to 5 h gives a growth rate of 1.63 per hour (e-folding time
+0.61 h). The absolute `w` difference is 3e-11 m/s up to 3 h, then 2.9e-10 m/s at 4 h and
+3.5e-8 m/s at 5 h. The snapshot times first differ at step 300 (equal at step 200), so
+the `dt` sequences part between steps 201 and 300. S01F3 and S01R3 each refactorized 400
+times, 13.5 per 1000 steps. Hourly `MF(30.25)` [µPa], S01L3 and S01F3: 2.5086 (0.5 h),
+12.966 (1.5 h), 28.471 (2.5 h), 52.112 (3.5 h) and 180.47 (4.5 h), with relative differences
+of at most 1.5e-12 up to 3.5 h and 3.3e-11 at 4.5 h. The growth after 2 h, in the run that
+approaches breaking and nowhere in segment A, is consistent with H2, round-off
+amplification by the flow, and is not by itself evidence on the solver.
+
+**D-3, met.** S01R1 against S01L1, 492 shared snapshots, and S01R3 against S01L3, 296
+shared snapshots: max\|diff\| exactly 0.0 in both. `:lu_reuse` is bit-identical to `:lu`
+over both segments, including the 400 refactorizations of segment B.
+
+**D-4, cost (no band).** From the run logs, with the `real` time of each run, and from
+`d1.cost.tsv` over 00:16:06 to 00:52:05 (2159 s), while all six runs were active:
+
+| ratio | expected | whole run (`real`) | all six active |
+|---|---|---|---|
+| `:fft_tridiag` / `:lu`, segment A | about 0.80 | 0.781 | 0.789 |
+| `:fft_tridiag` / `:lu`, segment B | about 0.60 | 0.666 | 0.719 |
+| `:lu_reuse` / `:lu`, segment A | about 1.0 | 1.070 | 1.071 |
+| `:lu_reuse` / `:lu`, segment B | about 0.9 | 0.962 | 1.000 |
+
+The whole-run ratios mix concurrency levels, since the segment B runs ended between 00:52
+and 01:11 and the segment A runs then ran at concurrency 3 to 1; the all-six column holds
+concurrency fixed. On segment B the saving of `:fft_tridiag` is smaller than expected
+(0.67 to 0.72 against 0.60): up to 5 h the refactorizations are 13.5 per 1000 steps, fewer
+than in the S15F2 breaking window that set the estimate. On segment A, where both
+`:lu` variants refactorize twice, `:lu_reuse` ran 7 % slower than `:lu` at fixed
+concurrency, which the refactorization count does not explain; it may reflect a
+difference in the solve path or core placement and is not followed further here. The mean
+CPU power over the all-six interval was 39 W.
+
+Summary of outcomes. D-0, D-1 (row 1 and the second statement), D-2 (row 1) and D-3 are
+met; no prediction failed. Under the registration, `:fft_tridiag` can replace `:lu` on the
+segment A column and gives the same breaking-flow diagnostics on segment B, and `:lu_reuse`
+is a bit-identical interim. The default stays `:lu`: changing the default, or quoting a
+production flux from `:fft_tridiag`, is a separate decision. Variant L is not implemented,
+by its registered rule, since D-1 did not fail.

@@ -645,6 +645,19 @@
         separable, not column block-diagonal) and lu! symbolic reuse, behind a SimConfig
         switch, with an on/off pair; to be registered in a new doc. (3) late-time dt
         dependence grows past 5 % in the last two hours of the 24 h record.
+        Update 2026-10-20 (diffusion_solver_performance.md Section 1 results): item (2)
+        above is done. Branches converged: main fast-forwarded to 94da3cf and merged
+        dev/strang-splitting (479e8e1); main merged into dev/diffusion-fft-tridiag (8abf18e).
+        Set d1 (tags prereg/s01-diffusion-solver, run/d1-20261020) ran 00:14:42 to 01:39:40,
+        archived to output/d1 with no checksum difference. D-0 met (default path 0.0 to 9 h
+        and 5 h), D-1 row 1 met (rho, u, P, T at most 1.1e-12, rel_w 1.0e-8, MF(30.25) change
+        -2.6e-12 over 6-9 h), D-2 row 1 met (to 2 h; zh3 crossings equal; growth after 2 h
+        with e-folding 0.61 h, consistent with H2), D-3 met (:lu_reuse bit-identical), D-4
+        :fft_tridiag/:lu 0.78-0.79 (A) and 0.67-0.72 (B). The default stays :lu. OPEN: (a)
+        a decision to make :fft_tridiag the production solver (a new default needs its own
+        registration); (b) the shared pack/unpack in diffusion_step! (~93 % of the remaining
+        fft step); (c) src/io.jl does not write operator_split to the snapshot attributes;
+        (d) dev/blog-ghost-cell-figures is not merged.
     (g) Which N does each downstream quantity use? Opened 2026-09-01. N_REF = 0.018 s^-1 is
         the near-surface inversion value (N = 0.01763 at z = 0.25 km), not a lower-atmosphere
         mean; over 10-55 km in this column N is 0.0078-0.0097 with a mean of 0.00849, a
