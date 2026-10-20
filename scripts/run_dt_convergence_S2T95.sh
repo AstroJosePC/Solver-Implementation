@@ -30,11 +30,12 @@
 # lu_reuse; stamps in d1.start; MAGNUSP_OUTPUT defaults to ~/MAGNUSP_runs/d1 and the
 # archive goes to output/d1, so that S01L1 neither overwrites the local nor the archived
 # S14M1 of the same directory name), and `d2` the production twins of
-# docs/diffusion_solver_performance.md Section 2 (S02F1 to S02F9, all with diffsolver=fft
+# docs/diffusion_solver_performance.md Section 2 (S02F1 to S02F8, all with diffsolver=fft
 # and bcface=1: S02F1 at dz = 250 m, U40 h = 0.1 km for 9 h, the fft member of the pair
 # whose lu member is the archived S14S2; S02F2 to S02F8 the 24 h PR1 face-path cases
-# U20 h0.1, U57 h0.1, U20 h1, U40 h1, U57 h1, U20 h3 and U40 h3; S02F9 the 24 h
-# dz = 250 m U40 h = 1 km case of S15F2; stamps in d2.start; MAGNUSP_OUTPUT defaults to
+# U20 h0.1, U57 h0.1, U20 h1, U40 h1, U57 h1, U20 h3 and U40 h3; S02F9, the 24 h
+# dz = 250 m U40 h = 1 km case of S15F2, keeps its command and directory but was dropped
+# from the set before launch (Section 2 note of 2026-10-20); stamps in d2.start; MAGNUSP_OUTPUT defaults to
 # ~/MAGNUSP_runs/d2 and the archive goes to output/d2), each for dry, launch, status,
 # archive and monitor; `check` is shared. Logs are named by run ID
 # (case_id): S14<case> for the earlier sets. At launch the set records the git commit,
@@ -76,7 +77,7 @@ CASES="A B C D E F Z"
 [ "$SET" = s16 ] && { CASES="s16S4 s16X4 s16A4 s16L4 s16S3 s16X3 s16A3 s16L3 s16S2 s16X2 s16A2 s16L2 s16S1 s16X1 s16A1 s16L1"
                       STAMPS="$LOGS/S16.start"; }
 [ "$SET" = d1 ] && { CASES="dL1 dF1 dR1 dL3 dF3 dR3"; STAMPS="$LOGS/d1.start"; DEST="$ARCHIVE/d1"; }
-[ "$SET" = d2 ] && { CASES="d2F9 d2F1 d2F5 d2F2 d2F3 d2F4 d2F6 d2F7 d2F8"; STAMPS="$LOGS/d2.start"; DEST="$ARCHIVE/d2"; }
+[ "$SET" = d2 ] && { CASES="d2F1 d2F5 d2F2 d2F3 d2F4 d2F6 d2F7 d2F8"; STAMPS="$LOGS/d2.start"; DEST="$ARCHIVE/d2"; }
 LIN="linear mode=6 h=0.005 hours=18"
 COMMON="pbar=1 ramp=2 k0=0.005 lz=95"
 PROBE="linear mode=6 h=0.005 hours=1 pbar=1 k0=0.005 lz=95"
