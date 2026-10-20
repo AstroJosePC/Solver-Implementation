@@ -81,13 +81,20 @@
 #   `spsplit=1` (SimConfig.sponge_step = :split, exact relaxation after the LW step,
 #   tag _spsplit), `zx=1` (sweep_order = :zx, z-sweep before x-sweep, tag _zx) and
 #   `probe=N` (face_probe = N: ground-face w and p' of the z-predictor every N steps
-#   to face_probe.nc; leaves the solution unchanged, no tag). Tag order is
-#   ..._ramp<T>h_dx<N>_dz<N>_ub<Z>_bcface_spsplit_zx_cfl<X>.
+#   to face_probe.nc; leaves the solution unchanged, no tag).
 #   Section 16 options (docs/reflection_convergence_tests.md): `alt=1` (sweep_order
 #   = :alternate, tag _alt) or `strang=1` (:strang, x(dt/2) z(dt) x(dt/2), tag
 #   _strang) in place of `zx=1`, and `opstrang=1` (operator_split = :strang: split sponge,
 #   diffusion and cooling over dt/2 on both sides of the step, tag _opS, after the
-#   sweep tag). `final=1` also writes the snapshot at t_end (no tag).
+#   sweep tag). `final=1` also writes the snapshot at t_end (no tag). Implicit diffusion
+#   (SimConfig.diffusion_solver and diffusion_dt_tol, src/diffusion.jl):
+#   `diffsolver=lu_reuse` refactorizes the global sparse LU in place, keeping its
+#   symbolic analysis (tag _dlureuse), and `diffsolver=fft` solves the same discrete
+#   system by an rfft in x and one tridiagonal system in z per mode (tag _dfft); the
+#   default `diffsolver=lu` is the global LU of every earlier record (no tag).
+#   `difftol=X` (default 0.01, tag _dtol<X> otherwise) is the relative dt change
+#   that rebuilds the diffusion operators. Tag order is
+#   ..._ramp<T>h_dx<N>_dz<N>_dfft_dtol<X>_ub<Z>_bcface_spsplit_{zx|alt|strang}_opS_cfl<X>.
 #   Optional `lx=NNNN` (km) overrides the baseline width of any mode, e.g.
 #   `julia ... sweep_arsia_mons_stage2.jl lx=3000`. The solver itself is serial (no
 #   @threads in src/), so -t auto only helps the multi-combination sweep modes.
@@ -212,6 +219,14 @@ const RAMP_H = getarg("ramp", 0.0)
 RAMP_H >= 0 || error("ramp must be >= 0")
 # CFL number of the adaptive time step (`cfl=X`); 0.4 is the default of every record.
 const CFL_NUM = getarg("cfl", 0.4)
+# Implicit diffusion method (`diffsolver=lu|lu_reuse|fft`) and its refactorization
+# tolerance (`difftol=X`); the defaults :lu and 0.01 are the path of every record.
+const DIFF_SOLVER = let i = findfirst(a -> startswith(a, "diffsolver="), ARGS)
+    v = i === nothing ? "lu" : split(ARGS[i], "=")[2]
+    v == "lu" ? :lu : v == "lu_reuse" ? :lu_reuse : v == "fft" ? :fft_tridiag :
+        error("diffsolver must be lu, lu_reuse or fft, got $(v)")
+end
+const DIFF_DT_TOL = getarg("difftol", 0.01)
 # Launch-consistent blend height [km] (`ublend=Z`, main grid only); 0 keeps the MCD wind.
 const UBLEND_KM = getarg("ublend", 0.0)
 # Path of the imposed ground w (`bcface=1`: :face); 0 keeps the ghost-cell path.
@@ -243,6 +258,8 @@ const SPGLABEL = (K0_SPONGE == 0.05 ? "" : "_K0_$(K0_SPONGE)") *
                  (RAMP_H == 0 ? "" : "_ramp$(numlabel(RAMP_H))h") *
                  (DX == 4000.0 ? "" : "_dx$(numlabel(DX))") *
                  (DZ == 500.0 ? "" : "_dz$(numlabel(DZ))") *
+                 (DIFF_SOLVER === :lu ? "" : DIFF_SOLVER === :fft_tridiag ? "_dfft" : "_dlureuse") *
+                 (DIFF_DT_TOL == 0.01 ? "" : "_dtol$(DIFF_DT_TOL)") *
                  (UBLEND_KM == 0 ? "" : "_ub$(numlabel(UBLEND_KM))") *
                  (BOTTOM_FORCING === :ghost ? "" : "_bcface") *
                  (SPONGE_STEP === :inline ? "" : "_spsplit") *
@@ -356,6 +373,8 @@ else
         end
     end
 end
+(DIFF_SOLVER === :lu && DIFF_DT_TOL == 0.01) ||
+    @printf("  diffusion: %s | refactorization dt tolerance %g\n", DIFF_SOLVER, DIFF_DT_TOL)
 @printf("  bc_x     : periodic | bottom: reflective | top: eq19 outflow + sponge\n")
 @printf("  vertical : nz=%d (dz=%.0f) LZ=%.0f km | sponge %.0f-%.0f km (K0=%.4f)\n",
         nz, DZ, LZ / 1e3, SPONGE_BASE / 1e3, LZ / 1e3, K0_SPONGE)
@@ -399,6 +418,8 @@ Threads.@threads for params in combinations_arr
         sponge_frac = SPONGE_FRAC,
         K0_sponge = K0_SPONGE,
         pbar_mode = PBAR_MODE,
+        diffusion_solver = DIFF_SOLVER,
+        diffusion_dt_tol = DIFF_DT_TOL,
         bottom_forcing = BOTTOM_FORCING,
         sponge_step = SPONGE_STEP,
         sweep_order = SWEEP_ORDER,

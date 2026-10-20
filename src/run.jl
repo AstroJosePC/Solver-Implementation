@@ -59,6 +59,10 @@ function run_simulation(config::SimConfig;
 
     sponge_layer = init_sponge(grid, config)
     diff_solver = DiffusionSolver(grid.nx, grid.nz)
+    check_diffusion_config(config)
+    # Diffusion settings are printed only when they depart from the defaults, so the
+    # logs of the default path stay identical to the earlier records
+    diff_default = config.diffusion_solver === :lu && config.diffusion_dt_tol == 0.01
 
     # Workspace arrays for Euler solver
     Q_half_x = similar(Q)
@@ -138,6 +142,8 @@ function run_simulation(config::SimConfig;
     @printf("  Viscosity: %s, Cooling: %s\n",
             config.enable_viscosity ? "ON" : "OFF",
             config.enable_cooling ? "ON" : "OFF")
+    diff_default || @printf("  Diffusion solver: %s, refactorization dt tolerance %g\n",
+                            config.diffusion_solver, config.diffusion_dt_tol)
     println("="^80)
 
     # --- Time loop ---
@@ -311,6 +317,9 @@ function run_simulation(config::SimConfig;
     duration = wall_end - wall_start
     @printf("\nSimulation complete: %d steps, t=%.3f s\n", step_count, t)
     @printf("Wall-clock duration: %.2f seconds\n", duration)
+    diff_default || @printf("Diffusion solver: %s, %d factorizations (dt tolerance %g)\n",
+                            config.diffusion_solver, diff_solver.n_factor,
+                            config.diffusion_dt_tol)
 
     return SimulationState(Q, Q_bar, grid, config, atm, sponge_layer, diff_solver,
                            t, step_count, coupling_buffer)
