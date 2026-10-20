@@ -684,6 +684,15 @@
         reads 0.00 (macmon field parsing in the monitor); (g) merge dev/fft-production into
         main after review; the rule for production launchers is not yet written into
         CLAUDE.md.
+        Update 2026-10-20 (note at the end of Section 2): the D-3 ratios split into the pack
+        refactor (2.2), the solver (2.2) and the batch conditions (1.17) on the dz 500 m
+        column without breaking (product 5.7 against the measured 5.75); the solver alone
+        gains about 2 times before breaking and 4.0 to 4.7 times after it. (g) closed:
+        merged into main with --no-ff; the production rule (bcface=1 and diffsolver=fft)
+        goes into .claude/CLAUDE.md, which is git-ignored. OPEN: (h) no :lu-vs-:lu control measures how fast an overturning
+        flow amplifies a round-off perturbation, so the D-2 growth after t_c is consistent
+        with H2 but not shown to be solver-independent; a control pair needs a perturbation
+        switch defaulting to off and its own registration.
     (g) Which N does each downstream quantity use? Opened 2026-09-01. N_REF = 0.018 s^-1 is
         the near-surface inversion value (N = 0.01763 at z = 0.25 km), not a lower-atmosphere
         mean; over 10-55 km in this column N is 0.0078-0.0097 with a mean of 0.00849, a

@@ -1174,3 +1174,25 @@ solver along with the forcing path, `dt` or CFL, `dz`, window and run ID; the de
 D-2 differences after `t_c` (the S02F5 end time and its 2.55e-5 window-mean change) are the
 solver row of the error budget for runs that overturn, kept separate from the sampling
 scatter.
+
+**Note added 2026-10-20, after scoring: the solver's share of the D-3 ratios (descriptive).**
+The D-3 ratios of 0.11 to 0.19 (5 to 9 times) are not the gain of the solver alone. They
+split into three factors with the standalone medians already registered (Section 1 item c
+for the non-diffusion part and the factorization, Section 2 item b for `diffusion_step!`
+after `0f6ff62`); no new measurement is made. On the dz 500 m column without breaking:
+(i) the pack refactor takes the `:lu` step from 0.013 + 0.0710 = 0.084 s to
+0.013 + 0.0250 = 0.038 s, a factor 2.2; (ii) the solver takes it from 0.038 s to
+0.013 + 0.0040 = 0.017 s, a factor 2.2; (iii) the batch conditions add a factor 1.17, the
+off members having run at 0.103 / 0.084 = 1.23 times the old standalone rate at
+concurrency 11 or 12 and the twins at 0.0178 / 0.017 = 1.05 times the new one at
+concurrency 8. The product, 2.2 x 2.2 x 1.17 = 5.7, matches the measured 1 / 0.174 = 5.75.
+At dz 250 m without breaking the solver alone gives (0.026 + 0.050 to 0.059) / 0.034, 2.2
+to 2.5 times. In runs that overturn, `:lu` adds one factorization of 0.701 s (dz 500 m)
+at the rate the twins counted, 42.7 to 60.6 per 1000 steps, so the solver alone gives
+(0.038 + 0.030 to 0.042) / 0.017, 4.0 to 4.7 times; the same model on the old code with
+the factor 1.23 gives 0.140 to 0.156 s per step, against the 0.143 to 0.165 s measured for
+the off members, whose own rates are not counted here. The production gain of
+`diffsolver=fft` on the current code is therefore about 2 times before breaking and about
+4 to 5 times after it at dz 500 m. The other factor of about 2.6 belongs to the pack
+refactor, which `:lu` runs keep, and to the quieter machine. A dz 250 m run that overturns
+would gain more, with a 2.068 s factorization, but no pair measures it (open item (e)).
