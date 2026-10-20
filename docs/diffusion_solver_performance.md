@@ -986,3 +986,33 @@ the Strang ridge snapshots carry `operator_split = "strang"`. Summary
 `opS_fft.log`, `opS_lu.log`, and `rel_opS_new.json`.
 
 Any edit to the driver or `src/` before the launch requires a new `check`.
+
+**Note added 2026-10-20, S02F9 dropped from set `d2` before launch.** By decision of
+2026-10-20, written before any run of the set was started, S02F9 (the dz 250 m, U40,
+`h` = 1 km twin of S15F2) is removed from set `d2` (`0caebc7`). Its command and directory
+stay defined in the launcher, so a later registration can run it. The driver and `src/` are
+unchanged (hash `1b99274a03cc2a37`), so the check of D-0 (i) and (ii) stands; `dry d2` on
+`0caebc7` (`~/MAGNUSP_runs/d2/logs/d2.dry.drop9.log`) is identical to `d2.dry.dd3877f.log`
+apart from the S02F9 block. The launch stamp now also records the 1, 5 and 15 min load
+averages (`aef8f86`). This note corrects the following statements of this section and
+changes nothing else.
+- Runs: the set is S02F1 to S02F8, eight processes, concurrency 8 (not 9). The directory
+  `arsia_mons_stage2_24h_K0_0.005_LZ95_pbarP_ramp2h_dz250_dfft_bcface/run_U40.0_h1.0` is not
+  written. D-0 (iii) is read against the eight remaining directories.
+- Cost table: the S02F9 row does not apply. The wall clock of the set is set by S02F1, about
+  1.07 h at the registered rate on an otherwise idle machine. The CPU time summed over the
+  eight runs is about 5.2 h, against 31.3 h of `real` for their eight off members. Disk is
+  about 60 GB, and the archive copy takes about 0.7 h at the a3 rate.
+- D-2: five pairs (S02F4 to S02F8). The S02F9 items are not scored: its `bitcheck`, its
+  `zoverturn` (n = 9), the `pre_F9` window means and, under D-3, the wall clock per
+  simulated hour of S02F9 and S15F2 over 10.6 to 11.7 h.
+- Decision rule: "D-2 row 1 met in all six pairs" and "D-2 row 2 in any pair" read as five
+  pairs. The rule is otherwise applied as registered.
+- Scope, a limitation of the reduced set. At dz 250 m the set now covers only the
+  non-breaking S02F1 (U40, `h` = 0.1 km, 9 h). Adoption "on both grids and for every `h`"
+  would therefore rest, for dz 250 m runs that overturn, on no full-run pair: only on the
+  unit check (`rel_incr` 2.9e-11 per step at dz 250 m), on the 0.1 h reproduction of the
+  S15F2 command on the default path, and on the dz 500 m breaking pairs. This may bias the
+  reading for that regime, because the refactorization pattern and the state near `t_c` of
+  a dz 250 m overturning run are not compared. The reading of the decision rule records this
+  limitation next to its outcome.
